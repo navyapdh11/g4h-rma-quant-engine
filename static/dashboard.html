@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G4H-RMA Quant Engine V5.0 — Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1a1a2e',
+                        secondary: '#16213e',
+                        accent: '#0f3460',
+                        success: '#10b981',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .pulse-dot { animation: pulse-dot 2s infinite; }
+        .card-gradient {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1a1a2e; }
+        ::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #1a4a7a; }
+    </style>
+</head>
+<body class="bg-primary text-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-secondary border-b border-accent sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold">G4H-RMA Quant Engine</h1>
+                        <p class="text-xs text-gray-400">V5.0 Enterprise Edition</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2 h-2 bg-success rounded-full pulse-dot" id="status-dot"></span>
+                        <span class="text-sm" id="status-text">Connecting...</span>
+                    </div>
+                    <button onclick="refreshHealth()" class="p-2 hover:bg-accent rounded-lg transition" title="Refresh">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Health Cards -->
+        <section class="mb-6">
+            <h2 class="text-lg font-semibold mb-4 flex items-center">
+                <svg class="w-5 h-5 mr-2 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                System Health
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div class="card-gradient rounded-xl p-4 border border-accent">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Kalman Filter</span>
+                        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                    </div>
+                    <p class="text-2xl font-bold" id="kalman-status">--</p>
+                </div>
+                <div class="card-gradient rounded-xl p-4 border border-accent">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">EGARCH</span>
+                        <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/>
+                        </svg>
+                    </div>
+                    <p class="text-2xl font-bold" id="egarch-status">--</p>
+                </div>
+                <div class="card-gradient rounded-xl p-4 border border-accent">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">MCTS Engine</span>
+                        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                        </svg>
+                    </div>
+                    <p class="text-2xl font-bold" id="mcts-status">--</p>
+                </div>
+                <div class="card-gradient rounded-xl p-4 border border-accent">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Alpaca</span>
+                        <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <p class="text-2xl font-bold" id="alpaca-status">--</p>
+                </div>
+                <div class="card-gradient rounded-xl p-4 border border-accent">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm text-gray-400">Uptime</span>
+                        <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <p class="text-2xl font-bold" id="uptime-status">--</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Pair Scanner -->
+            <section class="card-gradient rounded-xl p-6 border border-accent">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                    Pair Scanner
+                </h2>
+                
+                <div class="flex space-x-2 mb-4">
+                    <select id="base-asset" class="flex-1 bg-primary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                        <option value="SPY">SPY</option>
+                        <option value="QQQ">QQQ</option>
+                        <option value="GLD">GLD</option>
+                        <option value="SLV">SLV</option>
+                        <option value="XOM">XOM</option>
+                        <option value="CVX">CVX</option>
+                        <option value="JPM">JPM</option>
+                        <option value="BAC">BAC</option>
+                        <option value="KO">KO</option>
+                        <option value="PEP">PEP</option>
+                        <option value="BTC-USD">BTC-USD</option>
+                        <option value="ETH-USD">ETH-USD</option>
+                    </select>
+                    <span class="text-gray-400 py-2">/</span>
+                    <select id="quote-asset" class="flex-1 bg-primary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                        <option value="QQQ">QQQ</option>
+                        <option value="SPY">SPY</option>
+                        <option value="GLD">GLD</option>
+                        <option value="SLV">SLV</option>
+                        <option value="XOM">XOM</option>
+                        <option value="CVX">CVX</option>
+                        <option value="JPM">JPM</option>
+                        <option value="BAC">BAC</option>
+                        <option value="KO">KO</option>
+                        <option value="PEP">PEP</option>
+                        <option value="BTC-USD">BTC-USD</option>
+                        <option value="ETH-USD">ETH-USD</option>
+                    </select>
+                    <button onclick="scanPair()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-medium transition">
+                        Scan
+                    </button>
+                </div>
+
+                <div id="scan-result" class="hidden">
+                    <div class="bg-primary rounded-lg p-4 space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Pair</span>
+                            <span class="font-bold" id="result-pair">--</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Action</span>
+                            <span class="px-3 py-1 rounded-full text-sm font-medium" id="result-action">--</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Confidence</span>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-32 bg-gray-700 rounded-full h-2">
+                                    <div class="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full" id="confidence-bar" style="width: 0%"></div>
+                                </div>
+                                <span id="confidence-value">--</span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Kalman Z-Score</span>
+                            <span class="font-mono" id="result-zscore">--</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Volatility</span>
+                            <span class="font-mono" id="result-vol">--</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">Regime</span>
+                            <span class="px-2 py-1 rounded text-xs" id="result-regime">--</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-gray-400">MCTS EV</span>
+                            <span class="font-mono" id="result-ev">--</span>
+                        </div>
+                        <div class="pt-2 border-t border-accent">
+                            <p class="text-xs text-gray-400" id="result-reasoning">--</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 flex space-x-2">
+                        <button onclick="executeTrade('LONG_SPREAD')" class="flex-1 bg-success hover:bg-green-600 py-2 rounded-lg font-medium transition">
+                            Long Spread
+                        </button>
+                        <button onclick="executeTrade('SHORT_SPREAD')" class="flex-1 bg-danger hover:bg-red-600 py-2 rounded-lg font-medium transition">
+                            Short Spread
+                        </button>
+                        <button onclick="executeTrade('HOLD')" class="flex-1 bg-gray-600 hover:bg-gray-500 py-2 rounded-lg font-medium transition">
+                            Hold
+                        </button>
+                    </div>
+                </div>
+
+                <div id="scan-loading" class="hidden text-center py-8">
+                    <svg class="animate-spin w-8 h-8 mx-auto text-blue-500" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                    </svg>
+                    <p class="mt-2 text-gray-400">Analyzing pair...</p>
+                </div>
+            </section>
+
+            <!-- Trade Execution -->
+            <section class="card-gradient rounded-xl p-6 border border-accent">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    Quick Execute
+                </h2>
+                
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Base Asset</label>
+                            <input type="text" id="exec-base" value="SPY" class="w-full bg-primary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Quote Asset</label>
+                            <input type="text" id="exec-quote" value="QQQ" class="w-full bg-primary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Action</label>
+                        <select id="exec-action" class="w-full bg-primary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                            <option value="LONG_SPREAD">Long Spread</option>
+                            <option value="SHORT_SPREAD">Short Spread</option>
+                            <option value="HOLD">Hold</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Quantity (Base)</label>
+                        <input type="number" id="exec-qty" value="10" class="w-full bg-primary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        <input type="checkbox" id="exec-dryrun" checked class="w-4 h-4">
+                        <label for="exec-dryrun" class="text-sm text-gray-400">Dry Run (Simulation)</label>
+                    </div>
+                    
+                    <button onclick="quickExecute()" class="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-500 hover:to-blue-500 py-3 rounded-lg font-medium transition">
+                        Execute Trade
+                    </button>
+                </div>
+
+                <div id="exec-result" class="hidden mt-4 p-4 rounded-lg bg-primary border border-accent">
+                    <div class="flex items-center space-x-2 mb-2">
+                        <span id="exec-result-icon"></span>
+                        <span class="font-bold" id="exec-result-status"></span>
+                    </div>
+                    <p class="text-sm text-gray-400" id="exec-result-details"></p>
+                </div>
+            </section>
+        </div>
+
+        <!-- Theory Section -->
+        <section class="mt-6 card-gradient rounded-xl p-6 border border-accent">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                    </svg>
+                    Mathematical Foundations
+                </h2>
+                <button onclick="toggleTheory()" class="text-blue-400 hover:text-blue-300 text-sm">
+                    <span id="theory-toggle">Show</span>
+                </button>
+            </div>
+            
+            <div id="theory-content" class="hidden space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-primary rounded-lg p-4 border border-blue-900">
+                        <h3 class="font-bold text-blue-400 mb-2">Kalman Filter</h3>
+                        <ul class="text-sm text-gray-400 space-y-1 font-mono">
+                            <li>State: x = [β, α]ᵀ</li>
+                            <li>Transition: xₖ = xₖ₋₁ + w</li>
+                            <li>Observation: z = Price_A</li>
+                            <li>Predict: x⁻ = x, P⁻ = P + Q</li>
+                            <li>Innovation: y = z - Hx⁻</li>
+                            <li>Kalman Gain: K = P⁻H'S⁻¹</li>
+                            <li>Update: x⁺ = x⁻ + Ky</li>
+                            <li>Joseph Form: P⁺ = (I-KH)P⁻(I-KH)' + KRK'</li>
+                            <li>Z-Score: Z = y/√S</li>
+                        </ul>
+                    </div>
+                    <div class="bg-primary rounded-lg p-4 border border-purple-900">
+                        <h3 class="font-bold text-purple-400 mb-2">EGARCH(1,1)</h3>
+                        <ul class="text-sm text-gray-400 space-y-1 font-mono">
+                            <li>log(σ²ₜ) = ω + βlog(σ²ₜ₋₁)</li>
+                            <li>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ α|zₜ₋₁| + γzₜ₋₁</li>
+                            <li>γ < 0 → Leverage effect</li>
+                            <li>Regimes:</li>
+                            <li>&nbsp;&nbsp;LOW: σ < 15%</li>
+                            <li>&nbsp;&nbsp;NORMAL: 15-25%</li>
+                            <li>&nbsp;&nbsp;ELEVATED: 25-40%</li>
+                            <li>&nbsp;&nbsp;CRISIS: σ > 40%</li>
+                        </ul>
+                    </div>
+                    <div class="bg-primary rounded-lg p-4 border border-green-900">
+                        <h3 class="font-bold text-green-400 mb-2">MCTS</h3>
+                        <ul class="text-sm text-gray-400 space-y-1 font-mono">
+                            <li>Selection: UCB1</li>
+                            <li>Q(n)/N(n) + c√ln(N)/N</li>
+                            <li>Simulation: OU Process</li>
+                            <li>dz = λ(μ-z)dt + σ√dW</li>
+                            <li>σ = √S × vol_scale</li>
+                            <li>PnL: Long = z_exit - z_entry</li>
+                            <li>Policy: Most-visited</li>
+                            <li>Iterations: 800</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Recent Activity -->
+        <section class="mt-6 card-gradient rounded-xl p-6 border border-accent">
+            <h2 class="text-lg font-semibold mb-4 flex items-center">
+                <svg class="w-5 h-5 mr-2 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                Recent Activity
+            </h2>
+            <div id="activity-log" class="space-y-2 max-h-48 overflow-y-auto">
+                <p class="text-gray-500 text-sm text-center py-4">No activity yet</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-accent mt-8 py-4">
+        <div class="container mx-auto px-4 text-center text-sm text-gray-500">
+            G4H-RMA Quant Engine V5.0 | Kalman + EGARCH + MCTS + Alpaca + CCXT
+        </div>
+    </footer>
+
+    <script>
+        let currentPair = null;
+        let currentSignal = null;
+
+        // Auto-refresh health every 30 seconds
+        setInterval(refreshHealth, 30000);
+
+        async function refreshHealth() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                
+                document.getElementById('status-dot').className = 'w-2 h-2 bg-success rounded-full pulse-dot';
+                document.getElementById('status-text').textContent = 'Online';
+                
+                document.getElementById('kalman-status').textContent = data.modules.kalman ? '✓' : '✗';
+                document.getElementById('kalman-status').className = data.modules.kalman ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-danger';
+                
+                document.getElementById('egarch-status').textContent = data.modules.egarch ? '✓' : '✗';
+                document.getElementById('egarch-status').className = data.modules.egarch ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-danger';
+                
+                document.getElementById('mcts-status').textContent = data.modules.mcts ? '✓' : '✗';
+                document.getElementById('mcts-status').className = data.modules.mcts ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-danger';
+                
+                document.getElementById('alpaca-status').textContent = data.modules.alpaca ? 'Live' : 'Sim';
+                document.getElementById('alpaca-status').className = data.modules.alpaca ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-warning';
+                
+                const uptime = data.uptime_seconds;
+                const hrs = Math.floor(uptime / 3600);
+                const mins = Math.floor((uptime % 3600) / 60);
+                const secs = Math.floor(uptime % 60);
+                document.getElementById('uptime-status').textContent = `${hrs}h ${mins}m ${secs}s`;
+                
+            } catch (err) {
+                document.getElementById('status-dot').className = 'w-2 h-2 bg-danger rounded-full';
+                document.getElementById('status-text').textContent = 'Offline';
+            }
+        }
+
+        async function scanPair() {
+            const base = document.getElementById('base-asset').value;
+            const quote = document.getElementById('quote-asset').value;
+            currentPair = `${base}_${quote}`;
+            
+            document.getElementById('scan-loading').classList.remove('hidden');
+            document.getElementById('scan-result').classList.add('hidden');
+            
+            try {
+                const res = await fetch(`/api/v1/scan/${currentPair}`);
+                const data = await res.json();
+                currentSignal = data;
+                
+                document.getElementById('result-pair').textContent = data.pair;
+                
+                const actionEl = document.getElementById('result-action');
+                actionEl.textContent = data.action;
+                actionEl.className = `px-3 py-1 rounded-full text-sm font-medium ${
+                    data.action === 'LONG_SPREAD' ? 'bg-success text-white' :
+                    data.action === 'SHORT_SPREAD' ? 'bg-danger text-white' :
+                    'bg-gray-600 text-white'
+                }`;
+                
+                document.getElementById('confidence-value').textContent = `${(data.confidence * 100).toFixed(1)}%`;
+                document.getElementById('confidence-bar').style.width = `${data.confidence * 100}%`;
+                
+                document.getElementById('result-zscore').textContent = data.kalman.pure_z_score.toFixed(2);
+                document.getElementById('result-vol').textContent = `${(data.egarch.annualized_vol * 100).toFixed(1)}%`;
+                
+                const regimeEl = document.getElementById('result-regime');
+                regimeEl.textContent = data.egarch.regime;
+                regimeEl.className = `px-2 py-1 rounded text-xs ${
+                    data.egarch.regime === 'CRISIS' ? 'bg-danger text-white' :
+                    data.egarch.regime === 'ELEVATED' ? 'bg-warning text-black' :
+                    data.egarch.regime === 'NORMAL' ? 'bg-success text-white' :
+                    'bg-blue-600 text-white'
+                }`;
+                
+                document.getElementById('result-ev').textContent = data.mcts.expected_value.toFixed(3);
+                document.getElementById('result-reasoning').textContent = data.reasoning;
+                
+                document.getElementById('scan-loading').classList.add('hidden');
+                document.getElementById('scan-result').classList.remove('hidden');
+                
+                addActivity('scan', `Scanned ${data.pair} → ${data.action}`);
+                
+            } catch (err) {
+                document.getElementById('scan-loading').classList.add('hidden');
+                alert('Error scanning pair: ' + err.message);
+            }
+        }
+
+        async function executeTrade(action) {
+            if (!currentPair) {
+                alert('Please scan a pair first');
+                return;
+            }
+            
+            const [base, quote] = currentPair.split('_');
+            await execute(base, quote, action);
+        }
+
+        async function quickExecute() {
+            const base = document.getElementById('exec-base').value;
+            const quote = document.getElementById('exec-quote').value;
+            const action = document.getElementById('exec-action').value;
+            await execute(base, quote, action);
+        }
+
+        async function execute(base, quote, action) {
+            const qty = parseInt(document.getElementById('exec-qty').value);
+            const dryRun = document.getElementById('exec-dryrun').checked;
+            
+            try {
+                const res = await fetch('/api/v1/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base, quote, action, qty, dry_run: dryRun })
+                });
+                const data = await res.json();
+                
+                const resultEl = document.getElementById('exec-result');
+                resultEl.classList.remove('hidden');
+                
+                const iconEl = document.getElementById('exec-result-icon');
+                iconEl.innerHTML = data.status === 'executed' ? '✅' :
+                                   data.status === 'simulated' ? '🧪' :
+                                   data.status === 'rejected' ? '❌' : '⚠️';
+                
+                document.getElementById('exec-result-status').textContent = data.status.toUpperCase();
+                document.getElementById('exec-result-details').textContent = data.details;
+                
+                resultEl.className = `mt-4 p-4 rounded-lg bg-primary border ${
+                    data.status === 'executed' ? 'border-success' :
+                    data.status === 'simulated' ? 'border-warning' :
+                    'border-danger'
+                }`;
+                
+                addActivity('trade', `${action} ${base}/${quote} — ${data.status}`);
+                
+            } catch (err) {
+                alert('Error executing trade: ' + err.message);
+            }
+        }
+
+        function toggleTheory() {
+            const content = document.getElementById('theory-content');
+            const toggle = document.getElementById('theory-toggle');
+            content.classList.toggle('hidden');
+            toggle.textContent = content.classList.contains('hidden') ? 'Show' : 'Hide';
+        }
+
+        function addActivity(type, message) {
+            const log = document.getElementById('activity-log');
+            const time = new Date().toLocaleTimeString();
+            const icon = type === 'scan' ? '🔍' : '💹';
+            const html = `
+                <div class="flex items-center space-x-3 text-sm py-2 border-b border-accent last:border-0">
+                    <span class="text-gray-500">${time}</span>
+                    <span>${icon}</span>
+                    <span class="text-gray-300">${message}</span>
+                </div>
+            `;
+            
+            if (log.querySelector('p')) {
+                log.innerHTML = html;
+            } else {
+                log.insertAdjacentHTML('afterbegin', html);
+            }
+        }
+
+        // Initial health check
+        refreshHealth();
+    </script>
+</body>
+</html>

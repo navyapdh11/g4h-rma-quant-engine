@@ -1,0 +1,28 @@
+# Premium Liquid Equity Pairs for G4H-RMA Quant Engine
+# =====================================================
+# Copy this to pairs.json and use with:
+# curl -X POST http://localhost:8000/api/v1/scan \
+#   -H "Content-Type: application/json" \
+#   -d @pairs.json
+
+{
+  "pairs": [
+    {"base": "AAPL", "quote": "MSFT"},
+    {"base": "NVDA", "quote": "AMD"},
+    {"base": "GOOGL", "quote": "META"},
+    {"base": "AMZN", "quote": "GOOGL"},
+    {"base": "XOM", "quote": "CVX"},
+    {"base": "JPM", "quote": "BAC"},
+    {"base": "V", "quote": "MA"},
+    {"base": "KO", "quote": "PEP"},
+    {"base": "WMT", "quote": "COST"},
+    {"base": "PG", "quote": "KMB"},
+    {"base": "MCD", "quote": "YUM"},
+    {"base": "GS", "quote": "MS"},
+    {"base": "DAL", "quote": "UAL"},
+    {"base": "PFE", "quote": "JNJ"},
+    {"base": "LLY", "quote": "ABBV"}
+  ],
+  "mcts_iterations": 1200,
+  "source": "KALMAN_MCTS"
+}

@@ -1,0 +1,36 @@
+{
+  "connections": {
+    "alpaca": {
+      "enabled": true,
+      "paper_trading": true,
+      "config": {
+        "base_url": "https://paper-api.alpaca.markets"
+      }
+    },
+    "binance": {
+      "enabled": true,
+      "paper_trading": true,
+      "config": {}
+    },
+    "bybit": {
+      "enabled": false,
+      "paper_trading": true,
+      "config": {}
+    },
+    "futu": {
+      "enabled": false,
+      "paper_trading": true,
+      "config": {}
+    },
+    "ibkr": {
+      "enabled": false,
+      "paper_trading": true,
+      "config": {}
+    },
+    "tiger": {
+      "enabled": true,
+      "paper_trading": true,
+      "config": {}
+    }
+  }
+}

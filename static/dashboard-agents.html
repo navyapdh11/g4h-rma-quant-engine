@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G4H-RMA Quant Engine V5.0 — Multi-Agent Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0f0f1a',
+                        secondary: '#1a1a2e',
+                        accent: '#16213e',
+                        highlight: '#0f3460',
+                        success: '#10b981',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        info: '#3b82f6',
+                        agent: '#8b5cf6',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .pulse-dot { animation: pulse-dot 2s infinite; }
+        @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+        .card-gradient { background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%); }
+        .agent-card { background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%); }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f0f1a; }
+        ::-webkit-scrollbar-thumb { background: #16213e; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #0f3460; }
+        .tab-active { border-bottom: 2px solid #8b5cf6; color: #8b5cf6; }
+        .signal-strong-buy { background: linear-gradient(135deg, #059669, #10b981); }
+        .signal-buy { background: linear-gradient(135deg, #047857, #059669); }
+        .signal-hold { background: linear-gradient(135deg, #4b5563, #6b7280); }
+        .signal-sell { background: linear-gradient(135deg, #dc2626, #ef4444); }
+        .signal-strong-sell { background: linear-gradient(135deg, #991b1b, #dc2626); }
+    </style>
+</head>
+<body class="bg-primary text-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-secondary border-b border-accent sticky top-0 z-50">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold">G4H-RMA Quant Engine <span class="text-purple-400">V5.0</span></h1>
+                        <p class="text-xs text-gray-400">Multi-Agent Trading System</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2 h-2 bg-success rounded-full pulse-dot" id="status-dot"></span>
+                        <span class="text-sm" id="status-text">Connecting...</span>
+                    </div>
+                    <button onclick="refreshAll()" class="p-2 hover:bg-accent rounded-lg transition" title="Refresh">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-secondary border-b border-accent">
+        <div class="container mx-auto px-4">
+            <div class="flex space-x-6">
+                <button onclick="switchTab('dashboard')" id="tab-dashboard" class="tab-active py-3 px-2 text-sm font-medium transition">
+                    📊 Dashboard
+                </button>
+                <button onclick="switchTab('agents')" id="tab-agents" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    🤖 Agents
+                </button>
+                <button onclick="switchTab('trading')" id="tab-trading" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    ⚡ Auto-Trading
+                </button>
+                <button onclick="switchTab('scanner')" id="tab-scanner" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    🔍 Scanner
+                </button>
+                <button onclick="switchTab('connections')" id="tab-connections" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    🔗 Connections
+                </button>
+                <button onclick="switchTab('pnl')" id="tab-pnl" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    💰 P&L
+                </button>
+                <button onclick="switchTab('guide')" id="tab-guide" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    📚 Guide
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- Dashboard Tab -->
+        <div id="tab-dashboard-content" class="tab-content">
+            <!-- System Health -->
+            <section class="mb-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    System Health
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+                    <div class="card-gradient rounded-xl p-4 border border-accent">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-gray-400">Kalman</span>
+                            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                            </svg>
+                        </div>
+                        <p class="text-2xl font-bold" id="kalman-status">--</p>
+                    </div>
+                    <div class="card-gradient rounded-xl p-4 border border-accent">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-gray-400">EGARCH</span>
+                            <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/>
+                            </svg>
+                        </div>
+                        <p class="text-2xl font-bold" id="egarch-status">--</p>
+                    </div>
+                    <div class="card-gradient rounded-xl p-4 border border-accent">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-gray-400">MCTS</span>
+                            <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                            </svg>
+                        </div>
+                        <p class="text-2xl font-bold" id="mcts-status">--</p>
+                    </div>
+                    <div class="card-gradient rounded-xl p-4 border border-accent">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-gray-400">Agents</span>
+                            <svg class="w-5 h-5 text-agent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                            </svg>
+                        </div>
+                        <p class="text-2xl font-bold" id="agents-status">--</p>
+                    </div>
+                    <div class="card-gradient rounded-xl p-4 border border-accent">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-gray-400">Alpaca</span>
+                            <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                        <p class="text-2xl font-bold" id="alpaca-status">--</p>
+                    </div>
+                    <div class="card-gradient rounded-xl p-4 border border-accent">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-gray-400">Uptime</span>
+                            <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                        <p class="text-2xl font-bold" id="uptime-status">--</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Agent Decisions Feed -->
+            <section class="mb-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-agent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                    Real-Time Agent Decisions
+                </h2>
+                <div id="decisions-feed" class="space-y-2 max-h-96 overflow-y-auto">
+                    <p class="text-gray-500 text-sm text-center py-8">Waiting for agent decisions...</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- Agents Tab -->
+        <div id="tab-agents-content" class="tab-content hidden">
+            <h2 class="text-lg font-semibold mb-4">🤖 Trading Agents</h2>
+            <div id="agents-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Agent cards will be inserted here -->
+            </div>
+            
+            <!-- Agent Metrics -->
+            <section class="mt-6 card-gradient rounded-xl p-6 border border-accent">
+                <h3 class="text-lg font-semibold mb-4">Agent Performance Metrics</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-accent">
+                                <th class="text-left py-2">Agent</th>
+                                <th class="text-left py-2">Role</th>
+                                <th class="text-right py-2">Decisions</th>
+                                <th class="text-right py-2">Win Rate</th>
+                                <th class="text-right py-2">P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody id="agent-metrics-body">
+                            <tr><td colspan="5" class="text-center py-4 text-gray-500">Loading metrics...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Auto-Trading Tab -->
+        <div id="tab-trading-content" class="tab-content hidden">
+            <h2 class="text-lg font-semibold mb-4">⚡ Auto-Trading Control</h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Control Panel -->
+                <div class="card-gradient rounded-xl p-6 border border-accent">
+                    <h3 class="text-lg font-semibold mb-4">Trading Controls</h3>
+                    
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between p-4 bg-secondary rounded-lg">
+                            <div>
+                                <p class="font-medium">Auto-Trading</p>
+                                <p class="text-sm text-gray-400">Automatic execution based on agent consensus</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="auto-trade-toggle" class="sr-only peer" onchange="toggleAutoTrade()">
+                                <div class="w-14 h-7 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
+                            </label>
+                        </div>
+                        
+                        <div class="p-4 bg-secondary rounded-lg">
+                            <p class="text-sm text-gray-400 mb-2">Engine Status</p>
+                            <div class="flex items-center space-x-2">
+                                <span id="engine-status-dot" class="w-3 h-3 bg-gray-500 rounded-full"></span>
+                                <span id="engine-status-text" class="font-medium">Stopped</span>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <button onclick="startEngine()" class="bg-success hover:bg-green-600 py-3 rounded-lg font-medium transition">
+                                ▶ Start Engine
+                            </button>
+                            <button onclick="stopEngine()" class="bg-danger hover:bg-red-600 py-3 rounded-lg font-medium transition">
+                                ⏹ Stop Engine
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Active Trades -->
+                <div class="card-gradient rounded-xl p-6 border border-accent">
+                    <h3 class="text-lg font-semibold mb-4">Active Trades</h3>
+                    <div id="active-trades" class="space-y-2 max-h-64 overflow-y-auto">
+                        <p class="text-gray-500 text-sm text-center py-8">No active trades</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recent Decisions -->
+            <section class="mt-6 card-gradient rounded-xl p-6 border border-accent">
+                <h3 class="text-lg font-semibold mb-4">Recent Trading Decisions</h3>
+                <div id="trading-decisions" class="space-y-2 max-h-96 overflow-y-auto">
+                    <p class="text-gray-500 text-sm text-center py-4">No decisions yet</p>
+                </div>
+            </section>
+        </div>
+
+        <!-- Scanner Tab -->
+        <div id="tab-scanner-content" class="tab-content hidden">
+            <h2 class="text-lg font-semibold mb-4">🔍 Pair Scanner</h2>
+
+            <div class="card-gradient rounded-xl p-6 border border-accent max-w-2xl">
+                <div class="flex space-x-2 mb-4">
+                    <select id="base-asset" class="flex-1 bg-secondary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                        <option value="SPY">SPY</option>
+                        <option value="QQQ">QQQ</option>
+                        <option value="GLD">GLD</option>
+                        <option value="SLV">SLV</option>
+                    </select>
+                    <span class="text-gray-400 py-2">/</span>
+                    <select id="quote-asset" class="flex-1 bg-secondary border border-accent rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500">
+                        <option value="QQQ">QQQ</option>
+                        <option value="SPY">SPY</option>
+                        <option value="GLD">GLD</option>
+                        <option value="SLV">SLV</option>
+                    </select>
+                    <button onclick="scanPair()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-lg font-medium transition">
+                        Scan
+                    </button>
+                </div>
+
+                <div id="scan-result" class="hidden">
+                    <!-- Scan results will be shown here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Connections Tab -->
+        <div id="tab-connections-content" class="tab-content hidden">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">🔗 API Connections</h2>
+                <button onclick="testAllConnections()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                    ⚡ Test All
+                </button>
+            </div>
+
+            <div id="connections-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <!-- Connection cards will be rendered here -->
+                <div class="card-gradient rounded-xl p-6 border border-accent text-center text-gray-500">
+                    Loading connections...
+                </div>
+            </div>
+        </div>
+
+        <!-- P&L Tab -->
+        <div id="tab-pnl-content" class="tab-content hidden">
+            <!-- P&L Header -->
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold">💰 Profit & Loss</h2>
+                <div class="flex space-x-2">
+                    <button onclick="loadPnL('today')" id="pnl-btn-today" class="px-3 py-1 text-xs rounded bg-purple-600 hover:bg-purple-700 transition font-medium">Today</button>
+                    <button onclick="loadPnL('week')" id="pnl-btn-week" class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition font-medium">Week</button>
+                    <button onclick="loadPnL('month')" id="pnl-btn-month" class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition font-medium">Month</button>
+                    <button onclick="loadPnL('all')" id="pnl-btn-all" class="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition font-medium">All Time</button>
+                </div>
+            </div>
+
+            <!-- P&L Summary Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <p class="text-sm text-gray-400 mb-1">Total P&L</p>
+                    <p class="text-3xl font-bold" id="pnl-total">--</p>
+                    <p class="text-xs text-gray-500 mt-1" id="pnl-total-pct"></p>
+                </div>
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <p class="text-sm text-gray-400 mb-1">Win Rate</p>
+                    <p class="text-3xl font-bold" id="pnl-winrate">--</p>
+                    <p class="text-xs text-gray-500 mt-1" id="pnl-winrate-detail"></p>
+                </div>
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <p class="text-sm text-gray-400 mb-1">Sharpe Ratio</p>
+                    <p class="text-3xl font-bold" id="pnl-sharpe">--</p>
+                    <p class="text-xs text-gray-500 mt-1">Risk-adjusted return</p>
+                </div>
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <p class="text-sm text-gray-400 mb-1">Max Drawdown</p>
+                    <p class="text-3xl font-bold text-danger" id="pnl-drawdown">--</p>
+                    <p class="text-xs text-gray-500 mt-1">Worst peak-to-trough</p>
+                </div>
+            </div>
+
+            <!-- Second Row -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <p class="text-sm text-gray-400 mb-1">Total Trades</p>
+                    <p class="text-2xl font-bold" id="pnl-trades">--</p>
+                </div>
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <p class="text-sm text-gray-400 mb-1">Avg Trade P&L</p>
+                    <p class="text-2xl font-bold" id="pnl-avg">--</p>
+                </div>
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <p class="text-sm text-gray-400 mb-1">Profit Factor</p>
+                    <p class="text-2xl font-bold" id="pnl-profitfactor">--</p>
+                </div>
+            </div>
+
+            <!-- Trade History Table -->
+            <div class="card-gradient rounded-xl border border-accent overflow-hidden">
+                <div class="px-5 py-3 border-b border-accent" style="background: linear-gradient(135deg, #16213e, #1a1a2e);">
+                    <h3 class="font-semibold">Trade History</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b border-accent text-gray-400">
+                                <th class="text-left px-4 py-2">Time</th>
+                                <th class="text-left px-4 py-2">Pair</th>
+                                <th class="text-left px-4 py-2">Action</th>
+                                <th class="text-right px-4 py-2">Entry Z</th>
+                                <th class="text-right px-4 py-2">Exit Z</th>
+                                <th class="text-right px-4 py-2">P&L</th>
+                                <th class="text-center px-4 py-2">Agent</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pnl-trade-body">
+                            <tr><td colspan="7" class="text-center py-8 text-gray-500">No trades recorded yet</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Guide Tab -->
+        <div id="tab-guide-content" class="tab-content hidden">
+            <h2 class="text-lg font-semibold mb-4">📚 Complete Guide</h2>
+
+            <!-- Quick Start Section -->
+            <div class="card-gradient rounded-xl border border-accent mb-6 overflow-hidden">
+                <div class="px-5 py-4 border-b border-accent" style="background: linear-gradient(135deg, #0f3460, #16213e);">
+                    <h3 class="text-xl font-bold">🚀 Quick Start — 3 Minutes to First Trade</h3>
+                </div>
+                <div class="px-5 py-5 space-y-6">
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center font-bold">1</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Get Your API Keys</h4>
+                            <p class="text-sm text-gray-400">Sign up at <a href="https://app.alpaca.markets/paper" target="_blank" class="text-purple-400 underline">Alpaca Paper Trading</a> (free). Copy your API Key ID and Secret Key from the dashboard.</p>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center font-bold">2</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Configure Connections</h4>
+                            <p class="text-sm text-gray-400">Go to the <strong class="text-purple-400">🔗 Connections</strong> tab. Enable Alpaca, paste your keys, and click <strong>Test</strong>. You should see "Connected" with your account balance.</p>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center font-bold">3</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Start Auto-Trading</h4>
+                            <p class="text-sm text-gray-400">Go to <strong class="text-purple-400">⚡ Auto-Trading</strong> tab. Click <strong>▶ Start Engine</strong>, then toggle <strong>Auto-Trading</strong> on. The agents will scan pairs and execute trades automatically.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- How Does It Work Section -->
+            <div class="card-gradient rounded-xl border border-accent mb-6 overflow-hidden">
+                <div class="px-5 py-4 border-b border-accent" style="background: linear-gradient(135deg, #16213e, #1a1a2e);">
+                    <h3 class="text-lg font-semibold">🧠 How the Engine Works</h3>
+                </div>
+                <div class="px-5 py-5">
+                    <p class="text-sm text-gray-300 mb-4">The G4H-RMA Quant Engine uses a <strong>3-layer mathematical pipeline</strong> to find and execute pairs trading opportunities:</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div class="bg-secondary rounded-lg p-4 border border-accent">
+                            <h4 class="font-semibold text-blue-400 mb-2">1. Kalman Filter</h4>
+                            <p class="text-xs text-gray-400">Dynamically tracks the hedge ratio (beta) between two correlated assets. Produces a <strong>pure z-score</strong> with zero look-ahead bias — telling you when the spread is statistically far from equilibrium.</p>
+                        </div>
+                        <div class="bg-secondary rounded-lg p-4 border border-accent">
+                            <h4 class="font-semibold text-purple-400 mb-2">2. EGARCH Volatility</h4>
+                            <p class="text-xs text-gray-400">Models asymmetric volatility — negative shocks increase future volatility more than positive ones. Classifies market regime as <strong>Low / Normal / Elevated / Crisis</strong> to adjust position sizing.</p>
+                        </div>
+                        <div class="bg-secondary rounded-lg p-4 border border-accent">
+                            <h4 class="font-semibold text-green-400 mb-2">3. MCTS Decision</h4>
+                            <p class="text-xs text-gray-400">Monte Carlo Tree Search simulates 800+ future spread paths using Ornstein-Uhlenbeck mean-reversion. Outputs the <strong>expected value</strong> of going long, short, or holding the spread.</p>
+                        </div>
+                    </div>
+                    <div class="bg-accent rounded-lg p-4 text-center">
+                        <code class="text-sm text-purple-300">Kalman → EGARCH → MCTS → Risk Manager → Execute</code>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Multi-Agent System Section -->
+            <div class="card-gradient rounded-xl border border-accent mb-6 overflow-hidden">
+                <div class="px-5 py-4 border-b border-accent" style="background: linear-gradient(135deg, #16213e, #1a1a2e);">
+                    <h3 class="text-lg font-semibold">🤖 How the 5 Trading Agents Work</h3>
+                </div>
+                <div class="px-5 py-5">
+                    <p class="text-sm text-gray-300 mb-4">Five specialized agents collaborate in a <strong>10-second loop</strong> to scan, analyze, and execute trades:</p>
+
+                    <div class="space-y-3 mb-4">
+                        <div class="flex items-start space-x-3 bg-secondary rounded-lg p-3 border border-accent">
+                            <span class="text-xl">🔍</span>
+                            <div>
+                                <h4 class="font-semibold text-sm">ScoutAgent (scout-01)</h4>
+                                <p class="text-xs text-gray-400">Scans all configured pairs for Kalman z-score opportunities. Flags pairs where |Z| > 1.5 as potential trades.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3 bg-secondary rounded-lg p-3 border border-accent">
+                            <span class="text-xl">📊</span>
+                            <div>
+                                <h4 class="font-semibold text-sm">AnalystAgent (analyst-01)</h4>
+                                <p class="text-xs text-gray-400">Composite scoring: 50% MCTS expected value + 50% Kalman z-score. Ranks opportunities by confidence.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3 bg-secondary rounded-lg p-3 border border-accent">
+                            <span class="text-xl">💹</span>
+                            <div>
+                                <h4 class="font-semibold text-sm">TraderAgent (trader-01)</h4>
+                                <p class="text-xs text-gray-400">Determines execution timing and position sizing. Adjusts quantity based on current volatility regime.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3 bg-secondary rounded-lg p-3 border border-accent">
+                            <span class="text-xl">🛡️</span>
+                            <div>
+                                <h4 class="font-semibold text-sm">RiskAgent (risk-01)</h4>
+                                <p class="text-xs text-gray-400">Enforces daily trade limits ($100K max exposure, 10 trades/day). Halts trading during drawdown > 10% or crisis regime.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3 bg-secondary rounded-lg p-3 border border-accent">
+                            <span class="text-xl">🚨</span>
+                            <div>
+                                <h4 class="font-semibold text-sm">SentinelAgent (sentinel-01)</h4>
+                                <p class="text-xs text-gray-400">Black swan detection. Monitors for flash crashes, volatility spikes, and liquidity crises. Can halt all trading instantly.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-accent rounded-lg p-4">
+                        <h4 class="font-semibold text-sm mb-2">Consensus Mechanism</h4>
+                        <p class="text-xs text-gray-400">A trade executes only when ≥2 agents agree with confidence > 60%. This prevents false signals and overtrading.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Complete Auto-Trading Steps -->
+            <div class="card-gradient rounded-xl border border-accent mb-6 overflow-hidden">
+                <div class="px-5 py-4 border-b border-accent" style="background: linear-gradient(135deg, #059669, #047857);">
+                    <h3 class="text-lg font-semibold">⚡ Complete Auto-Trading Setup Guide</h3>
+                </div>
+                <div class="px-5 py-5 space-y-6">
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-success rounded-full flex items-center justify-center font-bold text-sm">1</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Configure Broker Connection</h4>
+                            <p class="text-sm text-gray-400 mb-2">Navigate to the <strong class="text-green-400">🔗 Connections</strong> tab. Find Alpaca (or your broker).</p>
+                            <ul class="text-xs text-gray-500 list-disc list-inside space-y-1">
+                                <li>Toggle <strong>Enabled</strong> ON</li>
+                                <li>Enter your API Key ID and Secret Key</li>
+                                <li>Click <strong>Test</strong> — wait for "Connected" confirmation</li>
+                                <li>Verify your account balance appears</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-success rounded-full flex items-center justify-center font-bold text-sm">2</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Verify Pairs to Trade</h4>
+                            <p class="text-sm text-gray-400 mb-2">The engine comes pre-configured with 15 equity pairs (AAPL/MSFT, NVDA/AMD, etc.).</p>
+                            <ul class="text-xs text-gray-500 list-disc list-inside space-y-1">
+                                <li>Go to <strong class="text-green-400">🔍 Scanner</strong> tab to test pairs manually</li>
+                                <li>Check z-scores and MCTS signals before enabling auto-trading</li>
+                                <li>Pairs with |Z| > 2.0 are strongest opportunities</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-success rounded-full flex items-center justify-center font-bold text-sm">3</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Understand Risk Limits</h4>
+                            <p class="text-sm text-gray-400 mb-2">Default safety settings protect your capital:</p>
+                            <ul class="text-xs text-gray-500 list-disc list-inside space-y-1">
+                                <li><strong>Max daily trades:</strong> 10 (prevents overtrading)</li>
+                                <li><strong>Max position size:</strong> $25,000 per trade</li>
+                                <li><strong>Max portfolio exposure:</strong> $100,000 total</li>
+                                <li><strong>Max daily loss:</strong> $5,000</li>
+                                <li><strong>Max drawdown halt:</strong> 10%</li>
+                                <li><strong>Stop-loss:</strong> Z-score exit at ±5.0</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-success rounded-full flex items-center justify-center font-bold text-sm">4</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Enable Auto-Trading</h4>
+                            <p class="text-sm text-gray-400 mb-2">Go to the <strong class="text-green-400">⚡ Auto-Trading</strong> tab:</p>
+                            <ul class="text-xs text-gray-500 list-disc list-inside space-y-1">
+                                <li>Click <strong>▶ Start Engine</strong> — the agents begin their 10-second scan loop</li>
+                                <li>Watch the <strong>Real-Time Agent Decisions</strong> feed on Dashboard tab</li>
+                                <li>Toggle <strong>Auto-Trading</strong> ON — this enables live execution (paper by default)</li>
+                                <li>Monitor active trades and agent statuses</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-success rounded-full flex items-center justify-center font-bold text-sm">5</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Monitor &amp; Review</h4>
+                            <p class="text-sm text-gray-400 mb-2">Use these tabs to track performance:</p>
+                            <ul class="text-xs text-gray-500 list-disc list-inside space-y-1">
+                                <li><strong class="text-green-400">📊 Dashboard</strong> — Real-time agent decisions feed</li>
+                                <li><strong class="text-green-400">🤖 Agents</strong> — Individual agent metrics and win rates</li>
+                                <li><strong class="text-green-400">💰 P&L</strong> — Profit/loss summary and trade history</li>
+                                <li><strong class="text-green-400">🔍 Scanner</strong> — On-demand pair analysis</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div class="flex-shrink-0 w-8 h-8 bg-danger rounded-full flex items-center justify-center font-bold text-sm">6</div>
+                        <div>
+                            <h4 class="font-semibold mb-1">Emergency Stop</h4>
+                            <p class="text-sm text-gray-400 mb-2">If anything goes wrong:</p>
+                            <ul class="text-xs text-gray-500 list-disc list-inside space-y-1">
+                                <li>Go to <strong class="text-green-400">⚡ Auto-Trading</strong> tab</li>
+                                <li>Click <strong>⏹ Stop Engine</strong> — immediately halts all agent scanning</li>
+                                <li>Toggle <strong>Auto-Trading</strong> OFF — prevents any new trades</li>
+                                <li>Or run: <code class="bg-accent px-1 rounded">./stop-autodeploy.sh</code> from terminal</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FAQs Section -->
+            <div class="card-gradient rounded-xl border border-accent mb-6 overflow-hidden">
+                <div class="px-5 py-4 border-b border-accent" style="background: linear-gradient(135deg, #16213e, #1a1a2e);">
+                    <h3 class="text-lg font-semibold">❓ Frequently Asked Questions</h3>
+                </div>
+                <div class="divide-y divide-accent" id="faq-container">
+                    <!-- FAQs rendered by JS -->
+                </div>
+            </div>
+
+            <!-- How-To Section -->
+            <div class="card-gradient rounded-xl border border-accent overflow-hidden">
+                <div class="px-5 py-4 border-b border-accent" style="background: linear-gradient(135deg, #16213e, #1a1a2e);">
+                    <h3 class="text-lg font-semibold">📖 How-To Guides</h3>
+                </div>
+                <div class="divide-y divide-accent" id="howto-container">
+                    <!-- How-tos rendered by JS -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-accent mt-8 py-4">
+        <div class="container mx-auto px-4 text-center text-sm text-gray-500">
+            G4H-RMA Quant Engine V5.0 — Multi-Agent Trading System | Kalman + EGARCH + MCTS + AI Agents
+        </div>
+    </footer>
+
+    <script>
+        // Global state
+        let ws = null;
+        let currentTab = 'dashboard';
+        let agentsState = {};
+        let decisions = [];
+        
+        // Tab switching
+        function switchTab(tab) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('nav button').forEach(el => {
+                el.classList.remove('tab-active');
+                el.classList.add('text-gray-400');
+            });
+
+            // Show selected tab
+            document.getElementById(`tab-${tab}-content`).classList.remove('hidden');
+            const tabBtn = document.getElementById(`tab-${tab}`);
+            tabBtn.classList.add('tab-active');
+            tabBtn.classList.remove('text-gray-400');
+
+            currentTab = tab;
+
+            // Load tab-specific data
+            if (tab === 'agents') loadAgents();
+            if (tab === 'trading') loadTradingData();
+            if (tab === 'connections') loadConnections();
+            if (tab === 'pnl') loadPnL('today');
+            if (tab === 'guide') renderGuide();
+        }
+        
+        // WebSocket connection
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/api/v1/agents/ws`);
+            
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                updateStatus('online');
+            };
+            
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(connectWebSocket, 3000);
+                updateStatus('offline');
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        function handleWebSocketMessage(message) {
+            switch(message.type) {
+                case 'init':
+                    updateEngineStatus(message.data);
+                    break;
+                case 'decision':
+                    addDecision(message.data);
+                    break;
+                case 'heartbeat':
+                    // Keep connection alive
+                    break;
+            }
+        }
+        
+        function updateStatus(status) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            
+            if (status === 'online') {
+                dot.className = 'w-2 h-2 bg-success rounded-full pulse-dot';
+                text.textContent = 'Connected';
+            } else {
+                dot.className = 'w-2 h-2 bg-danger rounded-full';
+                text.textContent = 'Disconnected';
+            }
+        }
+        
+        function addDecision(decision) {
+            decisions.unshift(decision);
+            decisions = decisions.slice(0, 20); // Keep last 20
+            
+            renderDecisions();
+            
+            // Show notification
+            showNotification(`${decision.signal} signal for ${decision.pair}`);
+        }
+        
+        function renderDecisions() {
+            const feed = document.getElementById('decisions-feed');
+            
+            if (decisions.length === 0) {
+                feed.innerHTML = '<p class="text-gray-500 text-sm text-center py-8">Waiting for agent decisions...</p>';
+                return;
+            }
+            
+            feed.innerHTML = decisions.map(d => `
+                <div class="slide-in flex items-center justify-between p-3 bg-secondary rounded-lg border border-accent">
+                    <div class="flex items-center space-x-3">
+                        <span class="px-2 py-1 rounded text-xs font-medium signal-${d.signal.toLowerCase().replace('_', '-')}">${d.signal}</span>
+                        <span class="font-medium">${d.pair}</span>
+                        <span class="text-sm text-gray-400">Conf: ${(d.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs text-gray-500">${new Date(d.timestamp).toLocaleTimeString()}</span>
+                        ${d.action === 'EXECUTE' ? '<span class="text-success text-xs ml-2">✓ Executing</span>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function showNotification(message) {
+            // Simple browser notification
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('Trading Signal', { body: message, icon: '/favicon.ico' });
+            }
+        }
+        
+        // Load agents
+        async function loadAgents() {
+            try {
+                const res = await fetch('/api/v1/agents/list');
+                const data = await res.json();
+                
+                const grid = document.getElementById('agents-grid');
+                grid.innerHTML = data.agents.map(agent => `
+                    <div class="agent-card rounded-xl p-5 border border-accent">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center">
+                                    <span class="text-lg font-bold">${agent.role[0].toUpperCase()}</span>
+                                </div>
+                                <div>
+                                    <p class="font-semibold">${agent.agent_id}</p>
+                                    <p class="text-xs text-gray-400 capitalize">${agent.role}</p>
+                                </div>
+                            </div>
+                            <span class="px-2 py-1 rounded text-xs ${
+                                agent.status === 'active' ? 'bg-success/20 text-success' :
+                                agent.status === 'error' ? 'bg-danger/20 text-danger' :
+                                'bg-gray-500/20 text-gray-400'
+                            }">${agent.status}</span>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-4">${agent.description}</p>
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                                <span class="text-gray-500">Decisions:</span>
+                                <span class="ml-1 font-medium">${agent.decisions_made}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Win Rate:</span>
+                                <span class="ml-1 font-medium">${(agent.win_rate * 100).toFixed(0)}%</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">P&L:</span>
+                                <span class="ml-1 font-medium ${agent.total_pnl >= 0 ? 'text-success' : 'text-danger'}">${agent.total_pnl.toFixed(2)}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Last Update:</span>
+                                <span class="ml-1 font-medium">${new Date(agent.last_update).toLocaleTimeString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                
+                // Update metrics table
+                const tbody = document.getElementById('agent-metrics-body');
+                tbody.innerHTML = data.agents.map(agent => `
+                    <tr class="border-b border-accent/50">
+                        <td class="py-3 font-medium">${agent.agent_id}</td>
+                        <td class="py-3 capitalize text-gray-400">${agent.role}</td>
+                        <td class="py-3 text-right">${agent.decisions_made}</td>
+                        <td class="py-3 text-right ${(agent.win_rate * 100).toFixed(0)}%</td>
+                        <td class="py-3 text-right ${agent.total_pnl >= 0 ? 'text-success' : 'text-danger'}">${agent.total_pnl.toFixed(2)}</td>
+                    </tr>
+                `).join('');
+                
+            } catch (err) {
+                console.error('Failed to load agents:', err);
+            }
+        }
+        
+        // Load trading data
+        async function loadTradingData() {
+            try {
+                const res = await fetch('/api/v1/agents/status');
+                const data = await res.json();
+                updateEngineStatus(data.engine);
+            } catch (err) {
+                console.error('Failed to load trading data:', err);
+            }
+        }
+        
+        function updateEngineStatus(engine) {
+            const dot = document.getElementById('engine-status-dot');
+            const text = document.getElementById('engine-status-text');
+            
+            if (engine.running) {
+                dot.className = 'w-3 h-3 bg-success rounded-full pulse-dot';
+                text.textContent = engine.auto_trade ? 'Running (Auto-Trading)' : 'Running (Manual)';
+            } else {
+                dot.className = 'w-3 h-3 bg-gray-500 rounded-full';
+                text.textContent = 'Stopped';
+            }
+            
+            // Update auto-trade toggle
+            document.getElementById('auto-trade-toggle').checked = engine.auto_trade;
+        }
+        
+        // Engine controls
+        async function startEngine() {
+            try {
+                const res = await fetch('/api/v1/agents/start', { method: 'POST' });
+                const data = await res.json();
+                showNotification(data.message);
+                loadTradingData();
+            } catch (err) {
+                alert('Failed to start engine: ' + err.message);
+            }
+        }
+        
+        async function stopEngine() {
+            try {
+                const res = await fetch('/api/v1/agents/stop', { method: 'POST' });
+                const data = await res.json();
+                showNotification(data.message);
+                loadTradingData();
+            } catch (err) {
+                alert('Failed to stop engine: ' + err.message);
+            }
+        }
+        
+        async function toggleAutoTrade() {
+            const enable = document.getElementById('auto-trade-toggle').checked;
+            try {
+                const res = await fetch(`/api/v1/agents/toggle-auto-trade?enable=${enable}`, { method: 'POST' });
+                const data = await res.json();
+                showNotification(data.message);
+            } catch (err) {
+                alert('Failed to toggle auto-trading: ' + err.message);
+                document.getElementById('auto-trade-toggle').checked = !enable;
+            }
+        }
+        
+        // Health check
+        async function refreshHealth() {
+            try {
+                const res = await fetch('/health');
+                const data = await res.json();
+                
+                document.getElementById('kalman-status').textContent = data.modules.kalman ? '✓' : '✗';
+                document.getElementById('kalman-status').className = data.modules.kalman ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-danger';
+                
+                document.getElementById('egarch-status').textContent = data.modules.egarch ? '✓' : '✗';
+                document.getElementById('egarch-status').className = data.modules.egarch ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-danger';
+                
+                document.getElementById('mcts-status').textContent = data.modules.mcts ? '✓' : '✗';
+                document.getElementById('mcts-status').className = data.modules.mcts ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-danger';
+                
+                document.getElementById('agents-status').textContent = data.modules.agents || '5';
+                document.getElementById('agents-status').className = 'text-2xl font-bold text-agent';
+                
+                document.getElementById('alpaca-status').textContent = data.modules.alpaca ? 'Live' : 'Sim';
+                document.getElementById('alpaca-status').className = data.modules.alpaca ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-warning';
+                
+                const uptime = data.uptime_seconds;
+                const hrs = Math.floor(uptime / 3600);
+                const mins = Math.floor((uptime % 3600) / 60);
+                const secs = Math.floor(uptime % 60);
+                document.getElementById('uptime-status').textContent = `${hrs}h ${mins}m ${secs}s`;
+                
+            } catch (err) {
+                updateStatus('offline');
+            }
+        }
+        
+        function refreshAll() {
+            refreshHealth();
+            if (currentTab === 'agents') loadAgents();
+            if (currentTab === 'trading') loadTradingData();
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshHealth();
+            connectWebSocket();
+            
+            // Request notification permission
+            if ('Notification' in window) {
+                Notification.requestPermission();
+            }
+            
+            // Auto-refresh every 10 seconds
+            setInterval(refreshHealth, 10000);
+        });
+        
+        // Placeholder functions for scanner
+        async function scanPair() {
+            alert('Scanner integration in progress. Use the API directly: GET /api/v1/scan/{pair}');
+        }
+
+        // ─── Connections Tab ──────────────────────────────────────────
+        let connectionStates = {};
+
+        async function loadConnections() {
+            try {
+                const res = await fetch('/api/v1/connections');
+                const data = await res.json();
+                connectionStates = {};
+                data.connections.forEach(c => { connectionStates[c.provider] = c; });
+                renderConnections(data.connections);
+            } catch (err) {
+                console.error('Failed to load connections:', err);
+            }
+        }
+
+        function renderConnections(connections) {
+            const grid = document.getElementById('connections-grid');
+            grid.innerHTML = connections.map(conn => {
+                const statusColor = {
+                    'connected': 'bg-success',
+                    'connecting': 'bg-yellow-500',
+                    'error': 'bg-danger',
+                    'disconnected': 'bg-gray-600',
+                    'disabled': 'bg-gray-700',
+                }[conn.status] || 'bg-gray-600';
+
+                const statusLabel = conn.status.charAt(0).toUpperCase() + conn.status.slice(1);
+                const fieldsHtml = renderConnectionFields(conn);
+                const accountInfo = conn.message && conn.message !== 'Disconnected' && conn.message !== 'Testing...'
+                    ? `<p class="text-xs mt-2 ${conn.status === 'error' ? 'text-danger' : 'text-success'}">${conn.message}</p>`
+                    : '';
+
+                return `
+                <div class="card-gradient rounded-xl border border-accent overflow-hidden" id="conn-card-${conn.provider}">
+                    <!-- Header -->
+                    <div class="px-5 py-4 flex items-center justify-between" style="background: linear-gradient(135deg, #16213e, #1a1a2e);">
+                        <div class="flex items-center space-x-3">
+                            <span class="text-2xl">${conn.icon}</span>
+                            <div>
+                                <h3 class="font-semibold">${conn.name}</h3>
+                                <p class="text-xs text-gray-400">${conn.description}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="w-2.5 h-2.5 rounded-full ${statusColor} ${conn.status === 'connected' ? 'pulse-dot' : ''}"></span>
+                            <span class="text-xs text-gray-400">${statusLabel}</span>
+                        </div>
+                    </div>
+                    <!-- Fields -->
+                    <div class="px-5 py-4 space-y-3">
+                        ${fieldsHtml}
+                        ${accountInfo}
+                    </div>
+                    <!-- Actions -->
+                    <div class="px-5 py-3 border-t border-accent flex items-center justify-between" style="background: rgba(0,0,0,0.2);">
+                        <div class="flex items-center space-x-3">
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" class="sr-only peer" ${conn.enabled ? 'checked' : ''}
+                                    onchange="toggleConnection('${conn.provider}', this.checked)">
+                                <div class="w-9 h-5 bg-gray-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600"></div>
+                            </label>
+                            <span class="text-xs text-gray-400">Enabled</span>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="testConnection('${conn.provider}')"
+                                class="px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-700 transition font-medium">
+                                Test
+                            </button>
+                            ${conn.status === 'connected' ? `
+                            <button onclick="disconnectProvider('${conn.provider}')"
+                                class="px-3 py-1.5 text-xs rounded bg-gray-600 hover:bg-gray-700 transition font-medium">
+                                Disconnect
+                            </button>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderConnectionFields(conn) {
+            if (!conn.fields || conn.fields.length === 0) return '';
+
+            return conn.fields.map(f => {
+                const value = conn.config && conn.config[f.key] ? conn.config[f.key] : (f.default || '');
+                const displayValue = f.type === 'password' ? (value ? '••••••••' : '') : value;
+
+                if (f.type === 'select') {
+                    const options = (f.options || []).map(opt =>
+                        `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`
+                    ).join('');
+                    return `
+                        <div>
+                            <label class="text-xs text-gray-400 block mb-1">${f.label}</label>
+                            <select id="field-${conn.provider}-${f.key}"
+                                class="w-full bg-secondary border border-accent rounded px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500"
+                                onchange="updateField('${conn.provider}', '${f.key}', this.value)">
+                                ${options}
+                            </select>
+                        </div>`;
+                }
+
+                return `
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">${f.label}</label>
+                        <input type="${f.type === 'password' ? 'password' : f.type === 'number' ? 'number' : 'text'}"
+                            id="field-${conn.provider}-${f.key}"
+                            value="${displayValue}"
+                            placeholder="${f.help || f.label}"
+                            class="w-full bg-secondary border border-accent rounded px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500"
+                            onchange="updateField('${conn.provider}', '${f.key}', this.value)">
+                    </div>`;
+            }).join('');
+        }
+
+        async function toggleConnection(provider, enabled) {
+            try {
+                await fetch(`/api/v1/connections/${provider}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled}),
+                });
+                loadConnections();
+            } catch (err) {
+                alert('Failed to toggle connection: ' + err.message);
+            }
+        }
+
+        function updateField(provider, key, value) {
+            if (!connectionStates[provider]) return;
+            if (!connectionStates[provider].config) connectionStates[provider].config = {};
+            connectionStates[provider].config[key] = value;
+        }
+
+        async function testConnection(provider) {
+            // Save current field values first
+            const conn = connectionStates[provider];
+            if (conn && conn.fields) {
+                const config = {};
+                conn.fields.forEach(f => {
+                    const el = document.getElementById(`field-${provider}-${f.key}`);
+                    if (el) config[f.key] = el.value;
+                });
+                if (Object.keys(config).length > 0) {
+                    await fetch(`/api/v1/connections/${provider}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({config, enabled: true}),
+                    });
+                }
+            }
+
+            const card = document.getElementById(`conn-card-${provider}`);
+            if (card) {
+                const btn = card.querySelector('button');
+                if (btn) { btn.disabled = true; btn.textContent = 'Testing...'; }
+            }
+
+            try {
+                const res = await fetch(`/api/v1/connections/${provider}/test`, {method: 'POST'});
+                const data = await res.json();
+                if (data.success) {
+                    showNotification(`${provider} connected successfully`);
+                } else {
+                    showNotification(`${provider} connection failed: ${data.message}`);
+                }
+                loadConnections();
+            } catch (err) {
+                alert('Test failed: ' + err.message);
+                loadConnections();
+            }
+        }
+
+        async function testAllConnections() {
+            try {
+                const res = await fetch('/api/v1/connections/test-all', {method: 'POST'});
+                const data = await res.json();
+                let connected = 0, failed = 0;
+                Object.values(data.results || {}).forEach(r => {
+                    if (r.success) connected++; else failed++;
+                });
+                showNotification(`Test complete: ${connected} connected, ${failed} failed`);
+                loadConnections();
+            } catch (err) {
+                alert('Test all failed: ' + err.message);
+            }
+        }
+
+        async function disconnectProvider(provider) {
+            try {
+                await fetch(`/api/v1/connections/${provider}/disconnect`, {method: 'POST'});
+                loadConnections();
+                showNotification(`${provider} disconnected`);
+            } catch (err) {
+                alert('Disconnect failed: ' + err.message);
+            }
+        }
+
+        // ─── P&L Tab ─────────────────────────────────────────────────
+        let pnlData = { trades: [], metrics: {} };
+
+        async function loadPnL(period) {
+            // Update button styles
+            ['today', 'week', 'month', 'all'].forEach(p => {
+                const btn = document.getElementById(`pnl-btn-${p}`);
+                if (btn) btn.className = `px-3 py-1 text-xs rounded ${p === period ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-700 hover:bg-gray-600'} transition font-medium`;
+            });
+
+            try {
+                // Fetch risk metrics and trade history
+                const [riskRes, historyRes] = await Promise.all([
+                    fetch('/api/v1/risk/metrics'),
+                    fetch('/api/v1/history'),
+                ]);
+
+                const risk = await riskRes.json();
+                const history = await historyRes.json();
+
+                // Calculate P&L metrics from history
+                const trades = Array.isArray(history) ? history : (history.trades || []);
+                const pnls = trades.map(t => t.pnl || 0);
+                const wins = pnls.filter(p => p > 0).length;
+                const losses = pnls.filter(p => p <= 0).length;
+                const totalPnl = pnls.reduce((a, b) => a + b, 0);
+                const avgPnl = pnls.length > 0 ? totalPnl / pnls.length : 0;
+                const grossWins = pnls.filter(p => p > 0).reduce((a, b) => a + b, 0);
+                const grossLosses = Math.abs(pnls.filter(p => p < 0).reduce((a, b) => a + b, 0));
+                const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : 0;
+                const winRate = pnls.length > 0 ? wins / pnls.length : 0;
+                const sharpe = risk.sharpe_ratio || 0;
+                const drawdown = risk.drawdown || (pnls.length > 0 ? Math.max(0, -Math.min(...pnls)) : 0);
+
+                // Update metrics cards
+                const totalEl = document.getElementById('pnl-total');
+                totalEl.textContent = `$${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}`;
+                totalEl.className = `text-3xl font-bold ${totalPnl >= 0 ? 'text-success' : 'text-danger'}`;
+                document.getElementById('pnl-total-pct').textContent = pnls.length > 0 ? `${pnls.length} trades processed` : '';
+
+                const wrEl = document.getElementById('pnl-winrate');
+                wrEl.textContent = `${(winRate * 100).toFixed(0)}%`;
+                wrEl.className = `text-3xl font-bold ${winRate >= 0.5 ? 'text-success' : winRate > 0 ? 'text-warning' : 'text-gray-500'}`;
+                document.getElementById('pnl-winrate-detail').textContent = `${wins}W / ${losses}L`;
+
+                const sharpeEl = document.getElementById('pnl-sharpe');
+                sharpeEl.textContent = sharpe ? sharpe.toFixed(2) : '--';
+                sharpeEl.className = `text-3xl font-bold ${sharpe >= 1 ? 'text-success' : sharpe > 0 ? 'text-warning' : 'text-gray-500'}`;
+
+                const ddEl = document.getElementById('pnl-drawdown');
+                ddEl.textContent = drawdown ? `${(drawdown * 100).toFixed(1)}%` : '--';
+                ddEl.className = `text-3xl font-bold text-danger`;
+
+                document.getElementById('pnl-trades').textContent = pnls.length;
+
+                const avgEl = document.getElementById('pnl-avg');
+                avgEl.textContent = `$${avgPnl >= 0 ? '+' : ''}${avgPnl.toFixed(4)}`;
+                avgEl.className = `text-2xl font-bold ${avgPnl >= 0 ? 'text-success' : 'text-danger'}`;
+
+                const pfEl = document.getElementById('pnl-profitfactor');
+                pfEl.textContent = profitFactor === Infinity ? '∞' : profitFactor.toFixed(2);
+                pfEl.className = `text-2xl font-bold ${profitFactor >= 1 ? 'text-success' : 'text-danger'}`;
+
+                // Update trade history table
+                const tbody = document.getElementById('pnl-trade-body');
+                if (trades.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-500">No trades recorded yet. Start the engine and enable auto-trading to see trades here.</td></tr>';
+                } else {
+                    tbody.innerHTML = trades.slice(-50).reverse().map(t => {
+                        const pnlVal = t.pnl || 0;
+                        const pnlClass = pnlVal >= 0 ? 'text-success' : 'text-danger';
+                        const actionClass = (t.action || '').includes('LONG') ? 'text-success' : (t.action || '').includes('SHORT') ? 'text-danger' : 'text-gray-400';
+                        return `
+                        <tr class="border-b border-accent/30 hover:bg-accent/30 transition">
+                            <td class="px-4 py-2 text-gray-400">${t.timestamp ? new Date(t.timestamp).toLocaleString() : '--'}</td>
+                            <td class="px-4 py-2 font-medium">${t.pair || '--'}</td>
+                            <td class="px-4 py-2 ${actionClass}">${t.action || '--'}</td>
+                            <td class="px-4 py-2 text-right">${t.entry_z ? t.entry_z.toFixed(2) : '--'}</td>
+                            <td class="px-4 py-2 text-right">${t.exit_z ? t.exit_z.toFixed(2) : '--'}</td>
+                            <td class="px-4 py-2 text-right font-semibold ${pnlClass}">${pnlVal >= 0 ? '+' : ''}$${pnlVal.toFixed(2)}</td>
+                            <td class="px-4 py-2 text-center text-gray-400">Auto</td>
+                        </tr>`;
+                    }).join('');
+                }
+
+            } catch (err) {
+                console.error('Failed to load P&L:', err);
+                document.getElementById('pnl-trade-body').innerHTML = '<tr><td colspan="7" class="text-center py-8 text-danger">Failed to load P&L data</td></tr>';
+            }
+        }
+
+        // ─── Guide Tab ───────────────────────────────────────────────
+        const faqs = [
+            {
+                q: "Is this real money or simulated?",
+                a: "By default, the engine runs in <strong>paper trading mode</strong> (simulated money). You configure real broker connections via the 🔗 Connections tab. Alpaca paper trading starts with $100,000 virtual cash."
+            },
+            {
+                q: "What is pairs trading?",
+                a: "Pairs trading is a market-neutral strategy. When two correlated assets diverge from their historical relationship, you go long the underperformer and short the overperformer. When they converge back, you profit from the spread closing."
+            },
+            {
+                q: "What does the Kalman filter do?",
+                a: "The Kalman filter dynamically estimates the hedge ratio (beta) between two assets. Unlike static regression, it updates in real-time as new prices arrive, adapting to changing market conditions. It produces a pure z-score with zero look-ahead bias."
+            },
+            {
+                q: "What is EGARCH and why does it matter?",
+                a: "EGARCH models volatility clustering and asymmetry — negative shocks increase future volatility more than positive ones. This helps the engine reduce position size during turbulent markets and avoid trading during crisis regimes."
+            },
+            {
+                q: "What does MCTS add?",
+                a: "Monte Carlo Tree Search simulates 800+ possible future spread paths using mean-reversion math. It calculates the expected value of going long, short, or holding — adding a decision layer beyond simple z-score thresholds."
+            },
+            {
+                q: "How much capital do I need?",
+                a: "The engine's default max position is $25,000 per trade with $100,000 max portfolio exposure. You can start with less — the engine scales quantities accordingly. Alpaca paper accounts start with $100,000 virtual cash."
+            },
+            {
+                q: "Can I lose money with paper trading?",
+                a: "No. Paper trading uses simulated money — it cannot lose real capital. However, paper results don't guarantee live performance due to slippage, liquidity, and execution differences."
+            },
+            {
+                q: "What happens during a market crash?",
+                a: "SentinelAgent detects flash crashes and volatility spikes. RiskAgent enforces a 10% max drawdown halt. If triggered, all trading stops automatically until manually reset."
+            },
+            {
+                q: "How do I add more trading pairs?",
+                a: "The engine comes with 15 equity pairs by default. You can scan custom pairs via the 🔍 Scanner tab or by calling the API: <code>GET /api/v1/scan/BASE_QUOTE</code>. To add permanent pairs, edit the <code>universe.equity_pairs</code> in <code>config.py</code>."
+            },
+            {
+                q: "Can I trade crypto?",
+                a: "Yes. The engine supports crypto pairs via CCXT (100+ exchanges including Binance, Bybit). Add crypto pairs like BTC-USD/ETH-USD via the scanner or config. Connect crypto brokers via the 🔗 Connections tab."
+            },
+            {
+                q: "How often does the engine scan for trades?",
+                a: "The trading loop runs every 10 seconds. Each cycle: fetches market data, runs all 5 agents, checks consensus, and optionally executes. You can adjust the scan interval in the agent configuration."
+            },
+            {
+                q: "Where do I see my performance?",
+                a: "Go to the <strong>💰 P&L tab</strong> for profit/loss metrics and trade history. The <strong>🤖 Agents tab</strong> shows individual agent win rates and P&L. The <strong>📊 Dashboard</strong> shows real-time decisions."
+            },
+        ];
+
+        const howTos = [
+            {
+                title: "How to Connect Alpaca",
+                steps: [
+                    "Sign up at <a href='https://app.alpaca.markets/paper' target='_blank' class='text-purple-400 underline'>app.alpaca.markets/paper</a> (free)",
+                    "Go to your dashboard and click 'View Keys'",
+                    "Copy your API Key ID and Secret Key",
+                    "Go to the 🔗 Connections tab in the dashboard",
+                    "Find the Alpaca card, toggle 'Enabled' ON",
+                    "Paste your Key ID and Secret Key into the fields",
+                    "Click 'Test' — you should see your account balance",
+                ]
+            },
+            {
+                title: "How to Run a Backtest",
+                steps: [
+                    "Open terminal and navigate to the engine directory",
+                    "Run: <code class='bg-accent px-1 rounded'>python main.py --backtest</code>",
+                    "This backtests SPY/QQQ from 2020 to present",
+                    "Review the metrics: Return, Sharpe, Win Rate, Max DD",
+                    "Or use the API: <code class='bg-accent px-1 rounded'>GET /api/v1/backtest?base=SPY&quote=QQQ</code>",
+                ]
+            },
+            {
+                title: "How to Scan Pairs Manually",
+                steps: [
+                    "Go to the 🔍 Scanner tab",
+                    "Select a base asset (e.g., SPY) and quote asset (e.g., QQQ)",
+                    "Click 'Scan' to analyze the pair",
+                    "Review the z-score, MCTS expected value, and recommended action",
+                    "Or use the API: <code class='bg-accent px-1 rounded'>GET /api/v1/scan/SPY_QQQ</code>",
+                    "Scan multiple pairs: <code class='bg-accent px-1 rounded'>POST /api/v1/scan</code> with a JSON body",
+                ]
+            },
+            {
+                title: "How to Add a Crypto Broker (Binance/Bybit)",
+                steps: [
+                    "Create an API key on your exchange (e.g., binance.com or bybit.com)",
+                    "Enable spot trading permissions, restrict IP if possible",
+                    "Go to the 🔗 Connections tab",
+                    "Find your exchange card, toggle 'Enabled' ON",
+                    "Enter API Key and Secret, select market type (spot/futures)",
+                    "Click 'Test' to verify the connection",
+                    "Note: Always use testnet first for testing",
+                ]
+            },
+            {
+                title: "How to Stop All Trading",
+                steps: [
+                    "Go to the ⚡ Auto-Trading tab",
+                    "Click '⏹ Stop Engine' — this halts the agent loop immediately",
+                    "Toggle 'Auto-Trading' OFF — prevents any new trade execution",
+                    "For emergency: run <code class='bg-accent px-1 rounded'>./stop-autodeploy.sh</code> from terminal",
+                    "Or: <code class='bg-accent px-1 rounded'>pkill -f 'python main.py'</code>",
+                ]
+            },
+            {
+                title: "How to Customize Risk Settings",
+                steps: [
+                    "Open <code class='bg-accent px-1 rounded'>config.py</code> in the engine directory",
+                    "Find the <code class='bg-accent px-1 rounded'>RiskConfig</code> dataclass",
+                    "Adjust: <code class='bg-accent px-1 rounded'>max_daily_trades</code> (default: 10)",
+                    "Adjust: <code class='bg-accent px-1 rounded'>max_position_notional</code> (default: $25,000)",
+                    "Adjust: <code class='bg-accent px-1 rounded'>max_drawdown_halt</code> (default: 10%)",
+                    "Save and restart the engine for changes to take effect",
+                ]
+            },
+        ];
+
+        let faqOpen = null;
+        let howtoOpen = null;
+
+        function renderGuide() {
+            // Render FAQs
+            const faqContainer = document.getElementById('faq-container');
+            if (faqContainer && !faqContainer.dataset.rendered) {
+                faqContainer.innerHTML = faqs.map((faq, i) => `
+                    <div class="cursor-pointer" onclick="toggleFaq(${i})">
+                        <div class="px-5 py-4 flex items-center justify-between hover:bg-accent/50 transition">
+                            <h4 class="font-medium text-sm flex-1 pr-4">❓ ${faq.q}</h4>
+                            <svg id="faq-arrow-${i}" class="w-4 h-4 text-gray-400 transition-transform ${faqOpen === i ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </div>
+                        <div id="faq-answer-${i}" class="px-5 pb-4 text-sm text-gray-400 ${faqOpen === i ? '' : 'hidden'}">
+                            ${faq.a}
+                        </div>
+                    </div>
+                `).join('');
+                faqContainer.dataset.rendered = 'true';
+            }
+
+            // Render How-Tos
+            const howtoContainer = document.getElementById('howto-container');
+            if (howtoContainer && !howtoContainer.dataset.rendered) {
+                howtoContainer.innerHTML = howTos.map((ht, i) => `
+                    <div class="cursor-pointer" onclick="toggleHowto(${i})">
+                        <div class="px-5 py-4 flex items-center justify-between hover:bg-accent/50 transition">
+                            <h4 class="font-medium text-sm flex-1 pr-4">📖 ${ht.title}</h4>
+                            <svg id="howto-arrow-${i}" class="w-4 h-4 text-gray-400 transition-transform ${howtoOpen === i ? 'rotate-90' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </div>
+                        <div id="howto-answer-${i}" class="px-5 pb-4 ${howtoOpen === i ? '' : 'hidden'}">
+                            <ol class="text-sm text-gray-400 space-y-2 list-decimal list-inside">
+                                ${ht.steps.map(s => `<li>${s}</li>`).join('')}
+                            </ol>
+                        </div>
+                    </div>
+                `).join('');
+                howtoContainer.dataset.rendered = 'true';
+            }
+        }
+
+        function toggleFaq(i) {
+            const el = document.getElementById(`faq-answer-${i}`);
+            const arrow = document.getElementById(`faq-arrow-${i}`);
+            if (faqOpen === i) {
+                el.classList.add('hidden');
+                arrow.classList.remove('rotate-90');
+                faqOpen = null;
+            } else {
+                if (faqOpen !== null) {
+                    document.getElementById(`faq-answer-${faqOpen}`).classList.add('hidden');
+                    document.getElementById(`faq-arrow-${faqOpen}`).classList.remove('rotate-90');
+                }
+                el.classList.remove('hidden');
+                arrow.classList.add('rotate-90');
+                faqOpen = i;
+            }
+        }
+
+        function toggleHowto(i) {
+            const el = document.getElementById(`howto-answer-${i}`);
+            const arrow = document.getElementById(`howto-arrow-${i}`);
+            if (howtoOpen === i) {
+                el.classList.add('hidden');
+                arrow.classList.remove('rotate-90');
+                howtoOpen = null;
+            } else {
+                if (howtoOpen !== null) {
+                    document.getElementById(`howto-answer-${howtoOpen}`).classList.add('hidden');
+                    document.getElementById(`howto-arrow-${howtoOpen}`).classList.remove('rotate-90');
+                }
+                el.classList.remove('hidden');
+                arrow.classList.add('rotate-90');
+                howtoOpen = i;
+            }
+        }
+    </script>
+</body>
+</html>

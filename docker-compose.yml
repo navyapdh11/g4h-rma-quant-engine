@@ -1,0 +1,55 @@
+# G4H-RMA Quant Engine V6.0 — Docker Compose
+# ===========================================
+version: '3.8'
+
+services:
+  quant-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: g4h-rma-quant-engine
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APCA_API_KEY_ID=${APCA_API_KEY_ID:-}
+      - APCA_API_SECRET_KEY=${APCA_API_SECRET_KEY:-}
+      - APCA_API_BASE_URL=https://paper-api.alpaca.markets
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_WORKERS=1
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - quant-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Redis for caching (future enhancement)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: g4h-redis
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis-data:/data
+  #   networks:
+  #     - quant-network
+
+networks:
+  quant-network:
+    driver: bridge
+
+# volumes:
+#   redis-data:

@@ -1,0 +1,43 @@
+# G4H-RMA Quant Engine V6.0 — Systemd Service File
+# ==================================================
+# Install: sudo cp g4h-quant-engine.service /etc/systemd/system/
+# Enable:  sudo systemctl enable g4h-quant-engine
+# Start:   sudo systemctl start g4h-quant-engine
+# Status:  sudo systemctl status g4h-quant-engine
+# Logs:    journalctl -u g4h-quant-engine -f
+
+[Unit]
+Description=G4H-RMA Quant Engine V6.0 — Algorithmic Trading System
+Documentation=https://github.com/g4h-rma/quant-engine
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/.openclaw/workspace/tools/g4h_quant_engine
+Environment="PATH=/root/.openclaw/workspace/tools/g4h_quant_engine/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=/root/.openclaw/workspace/tools/g4h_quant_engine/.env
+ExecStart=/root/.openclaw/workspace/tools/g4h_quant_engine/venv/bin/python main.py
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStop=/bin/kill -SIGINT $MAINPID
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=g4h-quant-engine
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/root/.openclaw/workspace/tools/g4h_quant_engine/logs
+ReadWritePaths=/root/.openclaw/workspace/tools/g4h_quant_engine/data
+
+# Resource limits
+LimitNOFILE=65535
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

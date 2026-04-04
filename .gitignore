@@ -1,0 +1,33 @@
+# Sensitive
+.env
+.env.production
+connections.json
+
+# Virtual environment
+venv/
+
+# Logs
+logs/*.log
+
+# Data
+data/*.db
+data/*.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# PIDs
+.watcher.pid
+.engine.pid
+.scheduler.pid
+.last_autodeploy
+
+# IDE
+.vscode/
+.idea/
+
+# Reports
+reports/

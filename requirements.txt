@@ -1,0 +1,46 @@
+# G4H-RMA Quant Engine V6.0 — Dependencies
+# ==========================================
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Validation
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Data
+pandas>=2.1.0
+numpy>=1.26.0
+yfinance>=0.2.31
+
+# Scientific
+scipy>=1.11.0
+statsmodels>=0.14.0
+arch>=6.3.0
+
+# Trading
+alpaca-trade-api>=3.1.0
+ccxt>=4.1.0
+
+# Async HTTP
+aiohttp>=3.9.0
+httpx>=0.25.0
+
+# Visualization
+matplotlib>=3.8.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# V6.0 Additions
+# Rate limiting
+slowapi>=0.1.9
+
+# Monitoring (optional)
+opentelemetry-api>=1.21.0
+opentelemetry-sdk>=1.21.0
+
+# Security
+python-jose[cryptography]>=3.3.0
