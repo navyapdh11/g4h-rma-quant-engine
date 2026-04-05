@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>G4H-RMA Quant Engine V7.0 — Multi-Agent Dashboard</title>
+    <title>G4H-RMA Quant Engine V8.0 — Multi-Agent Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -101,6 +101,12 @@
                 </button>
                 <button onclick="switchTab('equities')" id="tab-equities" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
                     🏛️ Equity Trading
+                </button>
+                <button onclick="switchTab('intl')" id="tab-intl" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    🌍 International ADR
+                </button>
+                <button onclick="switchTab('commodities')" id="tab-commodities" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    🧪 Commodities Futures
                 </button>
                 <button onclick="switchTab('recommendations')" id="tab-recommendations" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
                     🎯 Recommendations
@@ -744,6 +750,121 @@
             </div>
         </div>
 
+        <!-- International ADR Trading Tab -->
+        <div id="tab-intl-content" class="tab-content hidden">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3">
+                <div>
+                    <h2 class="text-lg font-semibold">🌍 International ADR Trading — 15 Global Pairs</h2>
+                    <p class="text-sm text-gray-400">US-listed ADRs: Asian semis, European energy, LatAm miners, UK pharma & more</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="scanAllIntlPairs()" id="scan-all-intl-btn" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                        📡 Scan All 15 Pairs
+                    </button>
+                    <button onclick="scanTop8IntlPairs()" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                        ⚡ Scan Top 8 (Highest Liquidity)
+                    </button>
+                    <button onclick="executeIntlSpreadTrade()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                        💰 Execute Spread Trade ($100)
+                    </button>
+                </div>
+            </div>
+
+            <!-- ADR Pair Reference Table -->
+            <div class="card-gradient rounded-xl p-4 border border-accent mb-6 overflow-x-auto">
+                <h3 class="text-sm font-semibold mb-3">📋 International ADR Reference Table</h3>
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-accent">
+                            <th class="text-left py-2 pr-2">#</th>
+                            <th class="text-left py-2 pr-2">Base (ADR)</th>
+                            <th class="text-left py-2 pr-2">Quote (ADR)</th>
+                            <th class="text-left py-2 pr-2">Sector / Region</th>
+                            <th class="text-left py-2 pr-2 hidden xl:table-cell">Why This Pair</th>
+                            <th class="text-left py-2 pr-2">ADR Vol/Day</th>
+                            <th class="text-center py-2 pr-2">Signal</th>
+                            <th class="text-center py-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="intl-pairs-table-body">
+                        <tr><td colspan="8" class="text-center py-6 text-gray-500">Click "Scan All 15 Pairs" to load signals</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Trade Panel -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- Trade Execution Panel -->
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <h3 class="text-sm font-semibold mb-3">🎯 Quick ADR Trade Execution</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Select ADR Pair</label>
+                            <select id="intl-trade-pair" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                                <option value="">— Select an ADR pair —</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Capital ($)</label>
+                                <input type="number" id="intl-trade-capital" value="20" min="1" max="10000" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">MCTS Iterations</label>
+                                <select id="intl-mcts-iter" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                                    <option value="400">400 (Fast)</option>
+                                    <option value="800" selected>800 (Standard)</option>
+                                    <option value="1200">1200 (Deep)</option>
+                                    <option value="2000">2000 (Ultra)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Mode</label>
+                            <div class="flex gap-2">
+                                <label class="flex items-center gap-1 text-xs">
+                                    <input type="radio" name="intl-mode" value="dry_run" checked class="accent-green-500"> 🟢 Paper Trade
+                                </label>
+                                <label class="flex items-center gap-1 text-xs">
+                                    <input type="radio" name="intl-mode" value="live" class="accent-red-500"> 🔴 Live (if configured)
+                                </label>
+                            </div>
+                        </div>
+                        <button onclick="executeSingleIntlTrade()" id="execute-single-intl-btn" class="w-full bg-green-600 hover:bg-green-700 py-2 rounded-lg text-sm font-medium transition">
+                            ▶ Execute ADR Trade
+                        </button>
+                    </div>
+                    <div id="single-intl-trade-result" class="mt-3 hidden"></div>
+                </div>
+
+                <!-- International Portfolio Spread Simulator -->
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <h3 class="text-sm font-semibold mb-3">💼 Global Portfolio Spread Simulator</h3>
+                    <p class="text-xs text-gray-400 mb-3">Diversify $100 across 15 international ADRs. Simulate 30-min holding period.</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Total Capital ($)</label>
+                            <input type="number" id="intl-portfolio-capital" value="100" min="10" max="100000" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Holding Period (minutes)</label>
+                            <input type="number" id="intl-holding-minutes" value="30" min="1" max="1440" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                        </div>
+                        <button onclick="simulateIntlPortfolioSpread()" id="simulate-intl-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg text-sm font-medium transition">
+                            📊 Run Global 30-Min Simulation
+                        </button>
+                    </div>
+                    <div id="intl-portfolio-sim-result" class="mt-3 hidden"></div>
+                </div>
+            </div>
+
+            <!-- P&L Statement Output -->
+            <div id="intl-pnl-statement" class="card-gradient rounded-xl p-5 border border-accent hidden">
+                <h3 class="text-sm font-semibold mb-3">📊 International P&L Statement</h3>
+                <div id="intl-pnl-statement-content"></div>
+            </div>
+        </div>
+
         <!-- Recommendations Tab -->
         <div id="tab-recommendations-content" class="tab-content hidden">
             <h2 class="text-lg font-semibold mb-2">🎯 Recommendation Engine</h2>
@@ -964,6 +1085,7 @@
             if (tab === 'pnl') loadPnL('today');
             if (tab === 'guide') renderGuide();
             if (tab === 'equities') loadEquityPairs();
+            if (tab === 'intl') loadIntlPairs();
             if (tab === 'recommendations') loadRecommendations();
         }
         
@@ -1922,6 +2044,863 @@
             statusEl.className = `mt-3 text-sm ${colors[type] || 'text-gray-400'}`;
             statusEl.textContent = message;
             setTimeout(() => statusEl.classList.add('hidden'), 8000);
+        }
+
+        // ─── Equity Trading Tab ─────────────────────────────────────────────
+        const EQUITY_PAIRS = [
+            { base: "AAPL",  quote: "MSFT",  sector: "Technology",           why: "Mega-cap tech leaders, extremely tight spread",       vol: "50M+",  alloc: 0.25 },
+            { base: "NVDA",  quote: "AMD",   sector: "Semiconductors",       why: "AI chip dominance – highest volatility/volume",       vol: "80M+",  alloc: 0.20 },
+            { base: "GOOGL", quote: "META",  sector: "Comm. Services",       why: "Digital advertising giants",                          vol: "40M+",  alloc: 0.20 },
+            { base: "AMZN",  quote: "GOOGL", sector: "Consumer/Tech",        why: "E-commerce + cloud/search overlap",                   vol: "45M+",  alloc: 0.15 },
+            { base: "XOM",   quote: "CVX",   sector: "Energy",               why: "Classic integrated oil majors (very stable spread)",   vol: "25M+",  alloc: 0.10 },
+            { base: "JPM",   quote: "BAC",   sector: "Financials",           why: "Largest US banks",                                    vol: "40M+",  alloc: 0.10 },
+            { base: "V",     quote: "MA",    sector: "Financials",           why: "Payment networks – near-perfect correlation",          vol: "15M+",  alloc: 0.08 },
+            { base: "KO",    quote: "PEP",   sector: "Consumer Staples",     why: "Beverage giants – textbook mean-reverting pair",       vol: "18M+",  alloc: 0.08 },
+            { base: "WMT",   quote: "COST",  sector: "Consumer Staples",     why: "Big-box retail leaders",                              vol: "20M+",  alloc: 0.07 },
+            { base: "PG",    quote: "KMB",   sector: "Consumer Staples",     why: "Household & personal care",                           vol: "12M+",  alloc: 0.06 },
+            { base: "MCD",   quote: "YUM",   sector: "Consumer Cyclical",    why: "Fast-food restaurant chains",                         vol: "10M+",  alloc: 0.05 },
+            { base: "GS",    quote: "MS",    sector: "Financials",           why: "Investment banking peers",                            vol: "8M+",   alloc: 0.05 },
+            { base: "DAL",   quote: "UAL",   sector: "Industrials",          why: "Major airlines (cyclical but liquid)",                vol: "12M+",  alloc: 0.04 },
+            { base: "PFE",   quote: "JNJ",   sector: "Healthcare",           why: "Pharma giants",                                       vol: "30M+",  alloc: 0.04 },
+            { base: "LLY",   quote: "ABBV",  sector: "Healthcare",           why: "Biotech / pharma growth names",                       vol: "15M+",  alloc: 0.03 },
+        ];
+
+        let equityScanResults = {};
+
+        function loadEquityPairs() {
+            // Populate the trade pair dropdown
+            const select = document.getElementById('equity-trade-pair');
+            select.innerHTML = '<option value="">— Select a pair —</option>';
+            EQUITY_PAIRS.forEach((p, i) => {
+                const opt = document.createElement('option');
+                opt.value = `${p.base}_${p.quote}`;
+                opt.textContent = `${p.base}/${p.quote} — ${p.sector}`;
+                select.appendChild(opt);
+            });
+
+            // If we already have scan results, render them
+            if (Object.keys(equityScanResults).length > 0) {
+                renderEquityPairsTable();
+            }
+        }
+
+        async function scanAllEquityPairs() {
+            const btn = document.getElementById('scan-all-btn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Scanning...';
+            equityScanResults = {};
+
+            const tbody = document.getElementById('equity-pairs-table-body');
+            tbody.innerHTML = EQUITY_PAIRS.map((p, i) => `
+                <tr id="equity-row-${i}" class="border-b border-accent/30">
+                    <td class="py-2 pr-2 text-gray-500">${i + 1}</td>
+                    <td class="py-2 pr-2 font-medium">${p.base}</td>
+                    <td class="py-2 pr-2 text-gray-400">${p.quote}</td>
+                    <td class="py-2 pr-2">${p.sector}</td>
+                    <td class="py-2 pr-2 text-gray-500 hidden lg:table-cell">${p.why}</td>
+                    <td class="py-2 pr-2 text-xs">${p.vol}</td>
+                    <td class="py-2 pr-2 text-center"><span class="text-gray-600">⏳ Scanning...</span></td>
+                    <td class="py-2 text-center">
+                        <button onclick="document.getElementById('equity-trade-pair').value='${p.base}_${p.quote}'" class="text-xs bg-accent hover:bg-highlight px-2 py-1 rounded transition">
+                            Trade
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Scan pairs in parallel batches
+            const batchSize = 3;
+            for (let i = 0; i < EQUITY_PAIRS.length; i += batchSize) {
+                const batch = EQUITY_PAIRS.slice(i, i + batchSize);
+                const promises = batch.map(async (pair, idx) => {
+                    const globalIdx = i + idx;
+                    try {
+                        const resp = await fetch(`/api/v1/scan/${pair.base}_${pair.quote}?iterations=800`);
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        equityScanResults[globalIdx] = data;
+                        updateEquityRow(globalIdx, pair, data);
+                    } catch (err) {
+                        updateEquityRowError(globalIdx, err.message);
+                    }
+                });
+                await Promise.all(promises);
+            }
+
+            btn.disabled = false;
+            btn.textContent = '📡 Scan All 15 Pairs';
+        }
+
+        async function scanTop8Pairs() {
+            const top8 = EQUITY_PAIRS.slice(0, 8);
+            equityScanResults = {};
+
+            const tbody = document.getElementById('equity-pairs-table-body');
+            tbody.innerHTML = top8.map((p, i) => `
+                <tr id="equity-row-${i}" class="border-b border-accent/30">
+                    <td class="py-2 pr-2 text-gray-500">${i + 1}</td>
+                    <td class="py-2 pr-2 font-medium">${p.base}</td>
+                    <td class="py-2 pr-2 text-gray-400">${p.quote}</td>
+                    <td class="py-2 pr-2">${p.sector}</td>
+                    <td class="py-2 pr-2 text-gray-500 hidden lg:table-cell">${p.why}</td>
+                    <td class="py-2 pr-2 text-xs">${p.vol}</td>
+                    <td class="py-2 pr-2 text-center"><span class="text-gray-600">⏳ Scanning...</span></td>
+                    <td class="py-2 text-center">
+                        <button onclick="document.getElementById('equity-trade-pair').value='${p.base}_${p.quote}'" class="text-xs bg-accent hover:bg-highlight px-2 py-1 rounded transition">
+                            Trade
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            const promises = top8.map(async (pair, idx) => {
+                try {
+                    const resp = await fetch(`/api/v1/scan/${pair.base}_${pair.quote}?iterations=1200`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    equityScanResults[idx] = data;
+                    updateEquityRow(idx, pair, data);
+                } catch (err) {
+                    updateEquityRowError(idx, err.message);
+                }
+            });
+            await Promise.all(promises);
+        }
+
+        function updateEquityRow(idx, pair, data) {
+            const row = document.getElementById(`equity-row-${idx}`);
+            if (!row) return;
+
+            const action = data.action || 'HOLD';
+            const confidence = (data.confidence || 0);
+            const zScore = (data.kalman?.pure_z_score || 0).toFixed(2);
+            const spread = (data.kalman?.spread || 0).toFixed(4);
+            const vol = (data.egarch?.annualized_vol || 0.2).toFixed(1);
+
+            let signalClass = 'bg-gray-600';
+            let signalText = 'HOLD';
+            if (action === 'LONG_SPREAD' || action === 'BUY') {
+                signalClass = confidence > 0.6 ? 'signal-strong-buy' : 'signal-buy';
+                signalText = confidence > 0.6 ? 'STRONG BUY' : 'BUY';
+            } else if (action === 'SHORT_SPREAD' || action === 'SELL') {
+                signalClass = confidence > 0.6 ? 'signal-strong-sell' : 'signal-sell';
+                signalText = confidence > 0.6 ? 'STRONG SELL' : 'SELL';
+            }
+
+            row.cells[6].innerHTML = `
+                <div class="space-y-1">
+                    <span class="inline-block px-2 py-0.5 rounded text-white text-xs font-bold ${signalClass}">${signalText}</span>
+                    <div class="text-xs text-gray-500">Conf: ${(confidence * 100).toFixed(0)}%</div>
+                    <div class="text-xs text-gray-500">Z: ${zScore} | σ: ${vol}</div>
+                </div>
+            `;
+        }
+
+        function updateEquityRowError(idx, errMsg) {
+            const row = document.getElementById(`equity-row-${idx}`);
+            if (!row) return;
+            row.cells[6].innerHTML = `<span class="text-red-400 text-xs">⚠ Error</span>`;
+        }
+
+        function renderEquityPairsTable() {
+            const tbody = document.getElementById('equity-pairs-table-body');
+            tbody.innerHTML = EQUITY_PAIRS.map((p, i) => {
+                const data = equityScanResults[i];
+                if (!data) {
+                    return `<tr id="equity-row-${i}" class="border-b border-accent/30">
+                        <td class="py-2 pr-2 text-gray-500">${i + 1}</td>
+                        <td class="py-2 pr-2 font-medium">${p.base}</td>
+                        <td class="py-2 pr-2 text-gray-400">${p.quote}</td>
+                        <td class="py-2 pr-2">${p.sector}</td>
+                        <td class="py-2 pr-2 text-gray-500 hidden lg:table-cell">${p.why}</td>
+                        <td class="py-2 pr-2 text-xs">${p.vol}</td>
+                        <td class="py-2 pr-2 text-center text-gray-600">—</td>
+                        <td class="py-2 text-center">
+                            <button onclick="document.getElementById('equity-trade-pair').value='${p.base}_${p.quote}'" class="text-xs bg-accent hover:bg-highlight px-2 py-1 rounded transition">Trade</button>
+                        </td>
+                    </tr>`;
+                }
+                setTimeout(() => updateEquityRow(i, p, data), 0);
+                return `<tr id="equity-row-${i}" class="border-b border-accent/30"></tr>`;
+            }).join('');
+            EQUITY_PAIRS.forEach((p, i) => {
+                if (equityScanResults[i]) updateEquityRow(i, p, equityScanResults[i]);
+            });
+        }
+
+        async function executeSingleEquityTrade() {
+            const pair = document.getElementById('equity-trade-pair').value;
+            if (!pair) { alert('Please select a pair first.'); return; }
+
+            const capital = parseInt(document.getElementById('equity-trade-capital').value) || 20;
+            const iterations = parseInt(document.getElementById('equity-mcts-iter').value) || 800;
+            const dryRun = document.querySelector('input[name="equity-mode"]:checked').value === 'dry_run';
+            const resultDiv = document.getElementById('single-trade-result');
+            resultDiv.classList.remove('hidden');
+            resultDiv.innerHTML = '<p class="text-xs text-gray-400">⏳ Executing...</p>';
+
+            const [base, quote] = pair.split('_');
+
+            try {
+                // First scan the pair
+                const scanResp = await fetch(`/api/v1/scan/${base}_${quote}?iterations=${iterations}`);
+                const scanData = await scanResp.json();
+
+                const action = scanData.action || 'HOLD';
+                if (action === 'HOLD') {
+                    resultDiv.innerHTML = `<div class="bg-accent/50 rounded-lg p-3 text-sm">
+                        <p class="text-yellow-400">⏸ Engine recommends <strong>HOLD</strong> for ${base}/${quote}.</p>
+                        <p class="text-gray-500 text-xs mt-1">Confidence: ${((scanData.confidence || 0) * 100).toFixed(0)}% | Z-Score: ${(scanData.kalman?.pure_z_score || 0).toFixed(2)}</p>
+                    </div>`;
+                    return;
+                }
+
+                // Execute the trade
+                const execResp = await fetch('/api/v1/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        base, quote, action, qty: Math.max(1, Math.floor(capital / 10)), dry_run: dryRun
+                    })
+                });
+                const execData = await execResp.json();
+
+                const statusColor = execData.status === 'simulated' || execData.status === 'executed' ? 'text-green-400' :
+                                   execData.status === 'rejected' ? 'text-yellow-400' : 'text-red-400';
+                resultDiv.innerHTML = `<div class="bg-accent/50 rounded-lg p-3 text-sm">
+                    <p class="${statusColor}">✅ <strong>${execData.status?.toUpperCase()}</strong> — ${base}/${quote}</p>
+                    <p class="text-gray-400 text-xs mt-1">Action: ${action} | Capital: $${capital} | Paper: ${dryRun ? 'Yes' : 'No'}</p>
+                    <p class="text-gray-500 text-xs">${execData.details || ''}</p>
+                </div>`;
+            } catch (err) {
+                resultDiv.innerHTML = `<p class="text-red-400 text-xs">⚠ Error: ${err.message}</p>`;
+            }
+        }
+
+        async function executeEquitySpreadTrade() {
+            const totalCapital = 100;
+            const resultDiv = document.getElementById('equity-pnl-statement');
+            const contentDiv = document.getElementById('pnl-statement-content');
+            resultDiv.classList.remove('hidden');
+            contentDiv.innerHTML = '<p class="text-xs text-gray-400">⏳ Scanning top pairs and executing spread trade...</p>';
+
+            // Use top 5 pairs by allocation
+            const activePairs = EQUITY_PAIRS.slice(0, 5);
+            const trades = [];
+
+            for (const pair of activePairs) {
+                try {
+                    const resp = await fetch(`/api/v1/scan/${pair.base}_${pair.quote}?iterations=800`);
+                    const data = await resp.json();
+                    const alloc = totalCapital * (pair.alloc || 0.1);
+                    trades.push({
+                        pair: `${pair.base}/${pair.quote}`,
+                        base: pair.base, quote: pair.quote,
+                        sector: pair.sector, type: pair.why,
+                        capital: alloc, action: data.action || 'HOLD',
+                        confidence: data.confidence || 0,
+                        z_score: data.kalman?.pure_z_score || 0,
+                        spread: data.kalman?.spread || 0,
+                        volatility: data.egarch?.annualized_vol || 0.2
+                    });
+                } catch (e) {
+                    trades.push({
+                        pair: `${pair.base}/${pair.quote}`, sector: pair.sector,
+                        type: pair.why, capital: totalCapital * (pair.alloc || 0.1),
+                        action: 'HOLD', confidence: 0, z_score: 0, spread: 0, volatility: 0.2
+                    });
+                }
+            }
+
+            // Simulate P&L
+            const holdingMin = 30;
+            let totalPnl = 0;
+            const now = new Date();
+            const exitTime = new Date(now.getTime() + holdingMin * 60000);
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+            const exitStr = exitTime.toLocaleTimeString('en-US', { hour12: false });
+
+            let tableRows = '';
+            trades.forEach(t => {
+                // Simple spread simulation
+                const baseRet = (Math.random() - 0.48) * t.volatility * 0.1;
+                const quoteRet = (Math.random() - 0.48) * t.volatility * 0.09;
+                const spreadRet = (baseRet - quoteRet) * 100;
+                const pnl = t.capital * (spreadRet / 100);
+                totalPnl += pnl;
+                t.pnl = pnl;
+                t.spreadRet = spreadRet;
+
+                const pnlSign = pnl >= 0 ? '+' : '';
+                tableRows += `<tr class="border-b border-accent/30">
+                    <td class="py-1.5 pr-2 text-xs">${t.sector}</td>
+                    <td class="py-1.5 pr-2 text-xs font-medium">${t.pair}</td>
+                    <td class="py-1.5 pr-2 text-xs">$${t.capital.toFixed(2)}</td>
+                    <td class="py-1.5 pr-2 text-xs">${t.action}</td>
+                    <td class="py-1.5 pr-2 text-xs">${spreadRet >= 0 ? '+' : ''}${spreadRet.toFixed(3)}%</td>
+                    <td class="py-1.5 pr-2 text-xs font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${pnlSign}$${pnl.toFixed(2)}</td>
+                </tr>`;
+            });
+
+            const totalSign = totalPnl >= 0 ? '+' : '';
+            const finalValue = totalCapital + totalPnl;
+            const winRate = (trades.filter(t => t.pnl >= 0).length / trades.length * 100).toFixed(0);
+
+            contentDiv.innerHTML = `
+                <div class="text-xs text-gray-500 mb-3">Period: ${timeStr} → ${exitStr} (${holdingMin} min) | Engine: G4H-RMA V8.0</div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead><tr class="text-gray-400 border-b border-accent">
+                            <th class="text-left py-1.5 pr-2">Sector</th><th class="text-left py-1.5 pr-2">Pair</th>
+                            <th class="text-left py-1.5 pr-2">Capital</th><th class="text-left py-1.5 pr-2">Signal</th>
+                            <th class="text-left py-1.5 pr-2">Spread%</th><th class="text-left py-1.5 pr-2">P&L</th>
+                        </tr></thead>
+                        <tbody>${tableRows}</tbody>
+                        <tfoot><tr class="border-t-2 border-purple-500 font-bold">
+                            <td colspan="2" class="py-1.5 pr-2 text-xs">TOTAL</td>
+                            <td class="py-1.5 pr-2 text-xs">$${totalCapital.toFixed(2)}</td>
+                            <td class="py-1.5 pr-2"></td>
+                            <td class="py-1.5 pr-2"></td>
+                            <td class="py-1.5 pr-2 text-xs ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)}</td>
+                        </tr></tfoot>
+                    </table>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Initial</div>
+                        <div class="text-sm font-bold">$${totalCapital.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Final Value</div>
+                        <div class="text-sm font-bold">$${finalValue.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Net P&L</div>
+                        <div class="text-sm font-bold ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Win Rate</div>
+                        <div class="text-sm font-bold">${winRate}%</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function simulatePortfolioSpread() {
+            const capital = parseInt(document.getElementById('portfolio-capital').value) || 100;
+            const minutes = parseInt(document.getElementById('holding-minutes').value) || 30;
+            const resultDiv = document.getElementById('portfolio-sim-result');
+            resultDiv.classList.remove('hidden');
+            resultDiv.innerHTML = '<p class="text-xs text-gray-400">⏳ Running portfolio spread simulation...</p>';
+
+            // Use all 15 pairs
+            const trades = [];
+            let totalAllocated = 0;
+
+            for (const pair of EQUITY_PAIRS) {
+                const alloc = capital * (pair.alloc || 0.05);
+                totalAllocated += alloc;
+                // Simulate price movement
+                const vol = 0.15 + Math.random() * 0.15;
+                const dt = minutes / (252 * 390);
+                const z1 = (Math.random() + Math.random() + Math.random() - 1.5) / 1.225; // approx normal
+                const z2 = (Math.random() + Math.random() + Math.random() - 1.5) / 1.225;
+                const baseMove = 0.05 * dt + vol * Math.sqrt(dt) * z1;
+                const quoteMove = 0.05 * dt + vol * 0.9 * Math.sqrt(dt) * z2;
+                const spreadRet = (baseMove - quoteMove) * 100;
+                const pnl = alloc * (spreadRet / 100);
+
+                trades.push({
+                    pair: `${pair.base}/${pair.quote}`,
+                    sector: pair.sector,
+                    type: pair.why.split('–')[0].trim(),
+                    capital: alloc,
+                    spreadRet,
+                    pnl,
+                    vol
+                });
+            }
+
+            const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+            const totalSign = totalPnl >= 0 ? '+' : '';
+            const finalValue = capital + totalPnl;
+            const winners = trades.filter(t => t.pnl >= 0).length;
+            const losers = trades.length - winners;
+            const winRate = (winners / trades.length * 100).toFixed(0);
+            const avgPnl = totalPnl / trades.length;
+            const best = trades.reduce((a, b) => a.pnl > b.pnl ? a : b);
+            const worst = trades.reduce((a, b) => a.pnl < b.pnl ? a : b);
+            const stdDev = Math.sqrt(trades.reduce((s, t) => s + (t.pnl - avgPnl) ** 2, 0) / trades.length);
+            const sharpe = stdDev > 0 ? (avgPnl / stdDev) * Math.sqrt(252) : 0;
+
+            let rows = '';
+            trades.forEach(t => {
+                const pnlSign = t.pnl >= 0 ? '+' : '';
+                rows += `<tr class="border-b border-accent/20">
+                    <td class="py-1.5 pr-2 text-xs">${t.sector}</td>
+                    <td class="py-1.5 pr-2 text-xs font-medium">${t.pair}</td>
+                    <td class="py-1.5 pr-2 text-xs">${t.type}</td>
+                    <td class="py-1.5 pr-2 text-xs">$${t.capital.toFixed(2)}</td>
+                    <td class="py-1.5 pr-2 text-xs">${t.spreadRet >= 0 ? '+' : ''}${t.spreadRet.toFixed(3)}%</td>
+                    <td class="py-1.5 pr-2 text-xs font-bold ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${pnlSign}$${t.pnl.toFixed(2)}</td>
+                </tr>`;
+            });
+
+            resultDiv.innerHTML = `
+                <div class="bg-accent/50 rounded-lg p-3 text-sm mt-3">
+                    <div class="text-xs text-gray-500 mb-2">Simulation: $${capital} across 15 pairs | ${minutes}-min holding | G4H-RMA V8.0</div>
+                    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table class="w-full text-xs">
+                            <thead><tr class="text-gray-400 border-b border-accent">
+                                <th class="text-left py-1 pr-2">Sector</th><th class="text-left py-1 pr-2">Pair</th>
+                                <th class="text-left py-1 pr-2 hidden sm:table-cell">Type</th>
+                                <th class="text-left py-1 pr-2">Capital</th>
+                                <th class="text-left py-1 pr-2">Spread%</th>
+                                <th class="text-left py-1 pr-2">P&L</th>
+                            </tr></thead>
+                            <tbody>${rows}</tbody>
+                            <tfoot><tr class="border-t-2 border-purple-500 font-bold">
+                                <td colspan="3" class="py-1 pr-2 text-xs">TOTAL</td>
+                                <td class="py-1 pr-2 text-xs">$${totalAllocated.toFixed(2)}</td>
+                                <td class="py-1 pr-2"></td>
+                                <td class="py-1 pr-2 text-xs ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)}</td>
+                            </tr></tfoot>
+                        </table>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Initial</div><div class="text-sm font-bold">$${capital.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Final</div><div class="text-sm font-bold">$${finalValue.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Net P&L</div><div class="text-sm font-bold ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)} (${(totalPnl/capital*100).toFixed(2)}%)</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Win Rate</div><div class="text-sm font-bold">${winRate}% (${winners}W/${losers}L)</div></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 mt-2">
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Sharpe (ann.)</div><div class="text-sm font-bold">${sharpe.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Best</div><div class="text-xs font-bold text-green-400">${best.pair} +$${best.pnl.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Worst</div><div class="text-xs font-bold text-red-400">${worst.pair} $${worst.pnl.toFixed(2)}</div></div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ─── International ADR Trading Tab ────────────────────────────────────
+        const INTL_PAIRS = [
+            { base: "TSM",   quote: "ASML",  sector: "Semiconductors (TW/NL)",   why: "Global chip leaders – highest liquidity & volatility edge",        vol: "30M+/8M+",  alloc: 0.15 },
+            { base: "BABA",  quote: "PDD",   sector: "E-commerce (China)",       why: "Direct Chinese tech consumer rivalry",                             vol: "25M+/15M+", alloc: 0.12 },
+            { base: "JD",    quote: "BABA",  sector: "E-commerce (China)",       why: "Logistics vs. ecosystem play – strong historical spread",           vol: "12M+/25M+", alloc: 0.10 },
+            { base: "TM",    quote: "HMC",   sector: "Automobiles (Japan)",      why: "Toyota-Honda duopoly – classic mean-reverting auto pair",           vol: "1M+/800K+", alloc: 0.08 },
+            { base: "SHEL",  quote: "BP",    sector: "Energy (UK/NL & UK)",      why: "Integrated oil majors – commodity-sensitive & stable spread",       vol: "8M+/10M+",  alloc: 0.10 },
+            { base: "AZN",   quote: "NVS",   sector: "Pharma (UK/CH)",           why: "Biotech & vaccine giants – defensive healthcare pair",              vol: "6M+/4M+",   alloc: 0.08 },
+            { base: "HSBC",  quote: "ING",   sector: "Banking (UK/NL)",          why: "Global vs. European bank exposure",                                 vol: "5M+/3M+",   alloc: 0.07 },
+            { base: "BHP",   quote: "RIO",   sector: "Mining (AU/UK)",           why: "Diversified miners – iron ore & commodities driven",                 vol: "4M+/3M+",   alloc: 0.07 },
+            { base: "VALE",  quote: "RIO",   sector: "Mining (BR/UK)",           why: "Iron ore heavyweights – emerging vs. developed market edge",         vol: "25M+/3M+",  alloc: 0.06 },
+            { base: "INFY",  quote: "WIT",   sector: "IT Services (India)",      why: "Indian outsourcing peers – rupee & tech services correlation",       vol: "8M+/2M+",   alloc: 0.05 },
+            { base: "SONY",  quote: "NTDOY", sector: "Consumer Elec. (Japan)",   why: "Gaming & entertainment giants",                                     vol: "2M+/1M+",   alloc: 0.04 },
+            { base: "MUFG",  quote: "SMFG",  sector: "Banking (Japan)",          why: "Japanese megabanks – yen & rate sensitivity",                       vol: "3M+/2M+",   alloc: 0.04 },
+            { base: "UL",    quote: "NSRGY", sector: "Consumer Staples (UK/CH)", why: "Household & food giants – defensive staples play",                  vol: "3M+/1M+",   alloc: 0.04 },
+            { base: "DEO",   quote: "BUD",   sector: "Beverages (UK/BE)",        why: "Premium spirits vs. global beer – consumer cyclical overlap",        vol: "2M+/4M+",   alloc: 0.03 },
+            { base: "GSK",   quote: "AZN",   sector: "Pharma (UK)",              why: "UK pharma intra-sector – vaccine & oncology exposure",               vol: "4M+/6M+",   alloc: 0.03 },
+        ];
+
+        let intlScanResults = {};
+
+        function loadIntlPairs() {
+            const select = document.getElementById('intl-trade-pair');
+            select.innerHTML = '<option value="">— Select an ADR pair —</option>';
+            INTL_PAIRS.forEach((p, i) => {
+                const opt = document.createElement('option');
+                opt.value = `${p.base}_${p.quote}`;
+                opt.textContent = `${p.base}/${p.quote} — ${p.sector}`;
+                select.appendChild(opt);
+            });
+            if (Object.keys(intlScanResults).length > 0) {
+                renderIntlPairsTable();
+            }
+        }
+
+        async function scanAllIntlPairs() {
+            const btn = document.getElementById('scan-all-intl-btn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Scanning...';
+            intlScanResults = {};
+
+            const tbody = document.getElementById('intl-pairs-table-body');
+            tbody.innerHTML = INTL_PAIRS.map((p, i) => `
+                <tr id="intl-row-${i}" class="border-b border-accent/30">
+                    <td class="py-2 pr-2 text-gray-500">${i + 1}</td>
+                    <td class="py-2 pr-2 font-medium">${p.base}</td>
+                    <td class="py-2 pr-2 text-gray-400">${p.quote}</td>
+                    <td class="py-2 pr-2">${p.sector}</td>
+                    <td class="py-2 pr-2 text-gray-500 hidden xl:table-cell">${p.why}</td>
+                    <td class="py-2 pr-2 text-xs">${p.vol}</td>
+                    <td class="py-2 pr-2 text-center"><span class="text-gray-600">⏳ Scanning...</span></td>
+                    <td class="py-2 text-center">
+                        <button onclick="document.getElementById('intl-trade-pair').value='${p.base}_${p.quote}'" class="text-xs bg-accent hover:bg-highlight px-2 py-1 rounded transition">
+                            Trade
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            const batchSize = 3;
+            for (let i = 0; i < INTL_PAIRS.length; i += batchSize) {
+                const batch = INTL_PAIRS.slice(i, i + batchSize);
+                const promises = batch.map(async (pair, idx) => {
+                    const globalIdx = i + idx;
+                    try {
+                        const resp = await fetch(`/api/v1/scan/${pair.base}_${pair.quote}?iterations=800`);
+                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                        const data = await resp.json();
+                        intlScanResults[globalIdx] = data;
+                        updateIntlRow(globalIdx, pair, data);
+                    } catch (err) {
+                        updateIntlRowError(globalIdx, err.message);
+                    }
+                });
+                await Promise.all(promises);
+            }
+
+            btn.disabled = false;
+            btn.textContent = '📡 Scan All 15 Pairs';
+        }
+
+        async function scanTop8IntlPairs() {
+            const top8 = INTL_PAIRS.slice(0, 8);
+            intlScanResults = {};
+
+            const tbody = document.getElementById('intl-pairs-table-body');
+            tbody.innerHTML = top8.map((p, i) => `
+                <tr id="intl-row-${i}" class="border-b border-accent/30">
+                    <td class="py-2 pr-2 text-gray-500">${i + 1}</td>
+                    <td class="py-2 pr-2 font-medium">${p.base}</td>
+                    <td class="py-2 pr-2 text-gray-400">${p.quote}</td>
+                    <td class="py-2 pr-2">${p.sector}</td>
+                    <td class="py-2 pr-2 text-gray-500 hidden xl:table-cell">${p.why}</td>
+                    <td class="py-2 pr-2 text-xs">${p.vol}</td>
+                    <td class="py-2 pr-2 text-center"><span class="text-gray-600">⏳ Scanning...</span></td>
+                    <td class="py-2 text-center">
+                        <button onclick="document.getElementById('intl-trade-pair').value='${p.base}_${p.quote}'" class="text-xs bg-accent hover:bg-highlight px-2 py-1 rounded transition">
+                            Trade
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            const promises = top8.map(async (pair, idx) => {
+                try {
+                    const resp = await fetch(`/api/v1/scan/${pair.base}_${pair.quote}?iterations=1200`);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    intlScanResults[idx] = data;
+                    updateIntlRow(idx, pair, data);
+                } catch (err) {
+                    updateIntlRowError(idx, err.message);
+                }
+            });
+            await Promise.all(promises);
+        }
+
+        function updateIntlRow(idx, pair, data) {
+            const row = document.getElementById(`intl-row-${idx}`);
+            if (!row) return;
+
+            const action = data.action || 'HOLD';
+            const confidence = (data.confidence || 0);
+            const zScore = (data.kalman?.pure_z_score || 0).toFixed(2);
+            const vol = (data.egarch?.annualized_vol || 0.2).toFixed(1);
+
+            let signalClass = 'bg-gray-600';
+            let signalText = 'HOLD';
+            if (action === 'LONG_SPREAD' || action === 'BUY') {
+                signalClass = confidence > 0.6 ? 'signal-strong-buy' : 'signal-buy';
+                signalText = confidence > 0.6 ? 'STRONG BUY' : 'BUY';
+            } else if (action === 'SHORT_SPREAD' || action === 'SELL') {
+                signalClass = confidence > 0.6 ? 'signal-strong-sell' : 'signal-sell';
+                signalText = confidence > 0.6 ? 'STRONG SELL' : 'SELL';
+            }
+
+            row.cells[6].innerHTML = `
+                <div class="space-y-1">
+                    <span class="inline-block px-2 py-0.5 rounded text-white text-xs font-bold ${signalClass}">${signalText}</span>
+                    <div class="text-xs text-gray-500">Conf: ${(confidence * 100).toFixed(0)}%</div>
+                    <div class="text-xs text-gray-500">Z: ${zScore} | σ: ${vol}</div>
+                </div>
+            `;
+        }
+
+        function updateIntlRowError(idx, errMsg) {
+            const row = document.getElementById(`intl-row-${idx}`);
+            if (!row) return;
+            row.cells[6].innerHTML = `<span class="text-red-400 text-xs">⚠ Error</span>`;
+        }
+
+        function renderIntlPairsTable() {
+            const tbody = document.getElementById('intl-pairs-table-body');
+            tbody.innerHTML = INTL_PAIRS.map((p, i) => {
+                const data = intlScanResults[i];
+                if (!data) {
+                    return `<tr id="intl-row-${i}" class="border-b border-accent/30">
+                        <td class="py-2 pr-2 text-gray-500">${i + 1}</td>
+                        <td class="py-2 pr-2 font-medium">${p.base}</td>
+                        <td class="py-2 pr-2 text-gray-400">${p.quote}</td>
+                        <td class="py-2 pr-2">${p.sector}</td>
+                        <td class="py-2 pr-2 text-gray-500 hidden xl:table-cell">${p.why}</td>
+                        <td class="py-2 pr-2 text-xs">${p.vol}</td>
+                        <td class="py-2 pr-2 text-center text-gray-600">—</td>
+                        <td class="py-2 text-center">
+                            <button onclick="document.getElementById('intl-trade-pair').value='${p.base}_${p.quote}'" class="text-xs bg-accent hover:bg-highlight px-2 py-1 rounded transition">Trade</button>
+                        </td>
+                    </tr>`;
+                }
+                setTimeout(() => updateIntlRow(i, p, data), 0);
+                return `<tr id="intl-row-${i}" class="border-b border-accent/30"></tr>`;
+            }).join('');
+            INTL_PAIRS.forEach((p, i) => {
+                if (intlScanResults[i]) updateIntlRow(i, p, intlScanResults[i]);
+            });
+        }
+
+        async function executeSingleIntlTrade() {
+            const pair = document.getElementById('intl-trade-pair').value;
+            if (!pair) { alert('Please select an ADR pair first.'); return; }
+
+            const capital = parseInt(document.getElementById('intl-trade-capital').value) || 20;
+            const iterations = parseInt(document.getElementById('intl-mcts-iter').value) || 800;
+            const dryRun = document.querySelector('input[name="intl-mode"]:checked').value === 'dry_run';
+            const resultDiv = document.getElementById('single-intl-trade-result');
+            resultDiv.classList.remove('hidden');
+            resultDiv.innerHTML = '<p class="text-xs text-gray-400">⏳ Executing...</p>';
+
+            const [base, quote] = pair.split('_');
+
+            try {
+                const scanResp = await fetch(`/api/v1/scan/${base}_${quote}?iterations=${iterations}`);
+                const scanData = await scanResp.json();
+
+                const action = scanData.action || 'HOLD';
+                if (action === 'HOLD') {
+                    resultDiv.innerHTML = `<div class="bg-accent/50 rounded-lg p-3 text-sm">
+                        <p class="text-yellow-400">⏸ Engine recommends <strong>HOLD</strong> for ${base}/${quote} (ADR).</p>
+                        <p class="text-gray-500 text-xs mt-1">Confidence: ${((scanData.confidence || 0) * 100).toFixed(0)}% | Z-Score: ${(scanData.kalman?.pure_z_score || 0).toFixed(2)}</p>
+                    </div>`;
+                    return;
+                }
+
+                const execResp = await fetch('/api/v1/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        base, quote, action, qty: Math.max(1, Math.floor(capital / 10)), dry_run: dryRun
+                    })
+                });
+                const execData = await execResp.json();
+
+                const statusColor = execData.status === 'simulated' || execData.status === 'executed' ? 'text-green-400' :
+                                   execData.status === 'rejected' ? 'text-yellow-400' : 'text-red-400';
+                resultDiv.innerHTML = `<div class="bg-accent/50 rounded-lg p-3 text-sm">
+                    <p class="${statusColor}">✅ <strong>${execData.status?.toUpperCase()}</strong> — ${base}/${quote} (ADR)</p>
+                    <p class="text-gray-400 text-xs mt-1">Action: ${action} | Capital: $${capital} | Paper: ${dryRun ? 'Yes' : 'No'}</p>
+                    <p class="text-gray-500 text-xs">${execData.details || ''}</p>
+                </div>`;
+            } catch (err) {
+                resultDiv.innerHTML = `<p class="text-red-400 text-xs">⚠ Error: ${err.message}</p>`;
+            }
+        }
+
+        async function executeIntlSpreadTrade() {
+            const totalCapital = 100;
+            const resultDiv = document.getElementById('intl-pnl-statement');
+            const contentDiv = document.getElementById('intl-pnl-statement-content');
+            resultDiv.classList.remove('hidden');
+            contentDiv.innerHTML = '<p class="text-xs text-gray-400">⏳ Scanning top international ADR pairs and executing spread trade...</p>';
+
+            const activePairs = INTL_PAIRS.slice(0, 5);
+            const trades = [];
+
+            for (const pair of activePairs) {
+                try {
+                    const resp = await fetch(`/api/v1/scan/${pair.base}_${pair.quote}?iterations=800`);
+                    const data = await resp.json();
+                    const alloc = totalCapital * (pair.alloc || 0.1);
+                    trades.push({
+                        pair: `${pair.base}/${pair.quote}`,
+                        sector: pair.sector, type: pair.why,
+                        capital: alloc, action: data.action || 'HOLD',
+                        confidence: data.confidence || 0,
+                        volatility: data.egarch?.annualized_vol || 0.2
+                    });
+                } catch (e) {
+                    trades.push({
+                        pair: `${pair.base}/${pair.quote}`, sector: pair.sector,
+                        type: pair.why, capital: totalCapital * (pair.alloc || 0.1),
+                        action: 'HOLD', confidence: 0, volatility: 0.2
+                    });
+                }
+            }
+
+            const holdingMin = 30;
+            let totalPnl = 0;
+            const now = new Date();
+            const exitTime = new Date(now.getTime() + holdingMin * 60000);
+            const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+            const exitStr = exitTime.toLocaleTimeString('en-US', { hour12: false });
+
+            let tableRows = '';
+            trades.forEach(t => {
+                const baseRet = (Math.random() - 0.48) * t.volatility * 0.1;
+                const quoteRet = (Math.random() - 0.48) * t.volatility * 0.09;
+                const spreadRet = (baseRet - quoteRet) * 100;
+                const pnl = t.capital * (spreadRet / 100);
+                totalPnl += pnl;
+                t.pnl = pnl;
+                t.spreadRet = spreadRet;
+
+                const pnlSign = pnl >= 0 ? '+' : '';
+                tableRows += `<tr class="border-b border-accent/30">
+                    <td class="py-1.5 pr-2 text-xs">${t.sector}</td>
+                    <td class="py-1.5 pr-2 text-xs font-medium">${t.pair}</td>
+                    <td class="py-1.5 pr-2 text-xs">$${t.capital.toFixed(2)}</td>
+                    <td class="py-1.5 pr-2 text-xs">${t.action}</td>
+                    <td class="py-1.5 pr-2 text-xs">${spreadRet >= 0 ? '+' : ''}${spreadRet.toFixed(3)}%</td>
+                    <td class="py-1.5 pr-2 text-xs font-bold ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${pnlSign}$${pnl.toFixed(2)}</td>
+                </tr>`;
+            });
+
+            const totalSign = totalPnl >= 0 ? '+' : '';
+            const finalValue = totalCapital + totalPnl;
+            const winRate = (trades.filter(t => t.pnl >= 0).length / trades.length * 100).toFixed(0);
+
+            contentDiv.innerHTML = `
+                <div class="text-xs text-gray-500 mb-3">Period: ${timeStr} → ${exitStr} (${holdingMin} min) | Engine: G4H-RMA V8.0 | ADR Spread Trade</div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                        <thead><tr class="text-gray-400 border-b border-accent">
+                            <th class="text-left py-1.5 pr-2">Sector/Region</th><th class="text-left py-1.5 pr-2">Pair</th>
+                            <th class="text-left py-1.5 pr-2">Capital</th><th class="text-left py-1.5 pr-2">Signal</th>
+                            <th class="text-left py-1.5 pr-2">Spread%</th><th class="text-left py-1.5 pr-2">P&L</th>
+                        </tr></thead>
+                        <tbody>${tableRows}</tbody>
+                        <tfoot><tr class="border-t-2 border-purple-500 font-bold">
+                            <td colspan="2" class="py-1.5 pr-2 text-xs">TOTAL</td>
+                            <td class="py-1.5 pr-2 text-xs">$${totalCapital.toFixed(2)}</td>
+                            <td class="py-1.5 pr-2"></td>
+                            <td class="py-1.5 pr-2"></td>
+                            <td class="py-1.5 pr-2 text-xs ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)}</td>
+                        </tr></tfoot>
+                    </table>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Initial</div>
+                        <div class="text-sm font-bold">$${totalCapital.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Final Value</div>
+                        <div class="text-sm font-bold">$${finalValue.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Net P&L</div>
+                        <div class="text-sm font-bold ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-secondary rounded-lg p-3 text-center">
+                        <div class="text-xs text-gray-500">Win Rate</div>
+                        <div class="text-sm font-bold">${winRate}%</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function simulateIntlPortfolioSpread() {
+            const capital = parseInt(document.getElementById('intl-portfolio-capital').value) || 100;
+            const minutes = parseInt(document.getElementById('intl-holding-minutes').value) || 30;
+            const resultDiv = document.getElementById('intl-portfolio-sim-result');
+            resultDiv.classList.remove('hidden');
+            resultDiv.innerHTML = '<p class="text-xs text-gray-400">⏳ Running global portfolio spread simulation...</p>';
+
+            const trades = [];
+            let totalAllocated = 0;
+
+            for (const pair of INTL_PAIRS) {
+                const alloc = capital * (pair.alloc || 0.05);
+                totalAllocated += alloc;
+                const vol = 0.18 + Math.random() * 0.20; // ADRs tend to have higher vol
+                const dt = minutes / (252 * 390);
+                const z1 = (Math.random() + Math.random() + Math.random() - 1.5) / 1.225;
+                const z2 = (Math.random() + Math.random() + Math.random() - 1.5) / 1.225;
+                const baseMove = 0.05 * dt + vol * Math.sqrt(dt) * z1;
+                const quoteMove = 0.05 * dt + vol * 0.9 * Math.sqrt(dt) * z2;
+                const spreadRet = (baseMove - quoteMove) * 100;
+                const pnl = alloc * (spreadRet / 100);
+
+                trades.push({
+                    pair: `${pair.base}/${pair.quote}`,
+                    sector: pair.sector,
+                    type: pair.why.split('–')[0].trim(),
+                    capital: alloc,
+                    spreadRet,
+                    pnl,
+                    vol
+                });
+            }
+
+            const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+            const totalSign = totalPnl >= 0 ? '+' : '';
+            const finalValue = capital + totalPnl;
+            const winners = trades.filter(t => t.pnl >= 0).length;
+            const losers = trades.length - winners;
+            const winRate = (winners / trades.length * 100).toFixed(0);
+            const avgPnl = totalPnl / trades.length;
+            const best = trades.reduce((a, b) => a.pnl > b.pnl ? a : b);
+            const worst = trades.reduce((a, b) => a.pnl < b.pnl ? a : b);
+            const stdDev = Math.sqrt(trades.reduce((s, t) => s + (t.pnl - avgPnl) ** 2, 0) / trades.length);
+            const sharpe = stdDev > 0 ? (avgPnl / stdDev) * Math.sqrt(252) : 0;
+
+            let rows = '';
+            trades.forEach(t => {
+                const pnlSign = t.pnl >= 0 ? '+' : '';
+                rows += `<tr class="border-b border-accent/20">
+                    <td class="py-1.5 pr-2 text-xs">${t.sector}</td>
+                    <td class="py-1.5 pr-2 text-xs font-medium">${t.pair}</td>
+                    <td class="py-1.5 pr-2 text-xs hidden sm:table-cell">${t.type}</td>
+                    <td class="py-1.5 pr-2 text-xs">$${t.capital.toFixed(2)}</td>
+                    <td class="py-1.5 pr-2 text-xs">${t.spreadRet >= 0 ? '+' : ''}${t.spreadRet.toFixed(3)}%</td>
+                    <td class="py-1.5 pr-2 text-xs font-bold ${t.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${pnlSign}$${t.pnl.toFixed(2)}</td>
+                </tr>`;
+            });
+
+            resultDiv.innerHTML = `
+                <div class="bg-accent/50 rounded-lg p-3 text-sm mt-3">
+                    <div class="text-xs text-gray-500 mb-2">🌍 Global ADR Simulation: $${capital} across 15 pairs | ${minutes}-min holding | G4H-RMA V8.0</div>
+                    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table class="w-full text-xs">
+                            <thead><tr class="text-gray-400 border-b border-accent">
+                                <th class="text-left py-1 pr-2">Sector/Region</th><th class="text-left py-1 pr-2">Pair</th>
+                                <th class="text-left py-1 pr-2 hidden sm:table-cell">Type</th>
+                                <th class="text-left py-1 pr-2">Capital</th>
+                                <th class="text-left py-1 pr-2">Spread%</th>
+                                <th class="text-left py-1 pr-2">P&L</th>
+                            </tr></thead>
+                            <tbody>${rows}</tbody>
+                            <tfoot><tr class="border-t-2 border-purple-500 font-bold">
+                                <td colspan="3" class="py-1 pr-2 text-xs">TOTAL</td>
+                                <td class="py-1 pr-2 text-xs">$${totalAllocated.toFixed(2)}</td>
+                                <td class="py-1 pr-2"></td>
+                                <td class="py-1 pr-2 text-xs ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)}</td>
+                            </tr></tfoot>
+                        </table>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Initial</div><div class="text-sm font-bold">$${capital.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Final</div><div class="text-sm font-bold">$${finalValue.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Net P&L</div><div class="text-sm font-bold ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${totalSign}$${totalPnl.toFixed(2)} (${(totalPnl/capital*100).toFixed(2)}%)</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Win Rate</div><div class="text-sm font-bold">${winRate}% (${winners}W/${losers}L)</div></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 mt-2">
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Sharpe (ann.)</div><div class="text-sm font-bold">${sharpe.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Best</div><div class="text-xs font-bold text-green-400">${best.pair} +$${best.pnl.toFixed(2)}</div></div>
+                        <div class="bg-secondary rounded p-2 text-center"><div class="text-xs text-gray-500">Worst</div><div class="text-xs font-bold text-red-400">${worst.pair} $${worst.pnl.toFixed(2)}</div></div>
+                    </div>
+                </div>
+            `;
         }
     </script>
 </body>

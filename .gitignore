@@ -34,3 +34,4 @@ reports/
 simulate_30min_spread.py
 __pycache__/
 *.pyc
+.vercel
