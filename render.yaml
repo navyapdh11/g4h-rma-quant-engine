@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: g4h-rma-quant-engine
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: starter
+    region: oregon
+    branch: master
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: APCA_API_KEY_ID
+        sync: false
+      - key: APCA_API_SECRET_KEY
+        sync: false
+    dockerCommand: ["python", "main.py"]
