@@ -1,3 +1,5 @@
+from __future__ import annotations
+import random
 """
 Async Data Fetcher V6.0
 ========================
@@ -7,7 +9,6 @@ Enhanced with:
   - Improved caching
   - Rate limit awareness
 """
-from __future__ import annotations
 import time
 import asyncio
 import logging
@@ -104,7 +105,8 @@ class DataFetcher:
                 logger.warning(f"YFinance attempt {attempt+1}: {e}")
                 self._record_failure(key)
                 if attempt < self.cfg.retry_max - 1:
-                    await asyncio.sleep(self.cfg.retry_backoff ** attempt)
+                    jitter = random.uniform(0.5, 1.5)  # Add jitter to prevent thundering herd
+                await asyncio.sleep((self.cfg.retry_backoff ** attempt) * jitter)
 
         # Fallback to legacy method
         return await self._legacy_download(ticker_a, ticker_b, period)
@@ -133,7 +135,7 @@ class DataFetcher:
         import yfinance as yf
         tickers = [ticker_a, ticker_b]
         try:
-            raw = yf.download(tickers, period=period, progress=False, timeout=30, auto_adjust=False)
+            raw = yf.download(tickers, period=period, progress=False, auto_adjust=False)  # timeout param not supported by yfinance
             if raw.empty:
                 return None
             if isinstance(raw.columns, pd.MultiIndex):

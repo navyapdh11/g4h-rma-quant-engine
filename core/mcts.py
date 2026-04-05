@@ -19,7 +19,8 @@ from __future__ import annotations
 import math
 import time
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import concurrent.futures as cf  # Use cf.TimeoutError
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
 from config import MCTSConfig
@@ -47,7 +48,8 @@ class _MCTSNode:
         exploit = self.total_reward / self.visits
         # V8.0: Add depth penalty to encourage exploration
         depth_penalty = 0.1 * self.depth
-        explore = c * math.sqrt(math.log(self.parent.visits) / self.visits) - depth_penalty
+        parent_visits = max(self.parent.visits, 1)  # Prevent log(0)
+        explore = c * math.sqrt(math.log(parent_visits) / max(self.visits, 1)) - depth_penalty
         return exploit + explore
 
     def best_child_ucb(self, c: float = 1.414) -> "_MCTSNode":
@@ -260,7 +262,7 @@ class MCTSEngine:
                     try:
                         root = f.result(timeout=worker_timeout)
                         roots.append(root)
-                    except TimeoutError:
+                    except cf.TimeoutError:
                         logger.warning("MCTS worker timed out — skipping")
                     except Exception as e:
                         logger.error(f"MCTS worker error: {e}")

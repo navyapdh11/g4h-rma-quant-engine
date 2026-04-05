@@ -14,6 +14,8 @@ Enhanced with:
 """
 from __future__ import annotations
 import asyncio
+import sys
+import os
 import time
 import uuid
 import logging
@@ -31,13 +33,14 @@ from models import (
     ActionType, AssetPair, BacktestRequest, BacktestResponse,
     ExecuteRequest, ExecutionResponse, HealthResponse,
     KalmanState, MCTSResult, ScanRequest, ScanResponse,
-    SignalSource, TradeSignal, RiskMetrics,
+    SignalSource, TradeSignal, RiskMetrics, VolatilityRegime,
 )
 from core.kalman import MultivariateKalmanFilter
 from core.egarch import EGARCHVolatilityModel
 from core.mcts import MCTSEngine
 from core.risk import RiskManager
 from data.fetcher import DataFetcher
+from data.unified_fetcher import UnifiedDataFetcher
 from execution.alpaca import AlpacaExecutor
 from core.connections import connection_manager
 
@@ -77,6 +80,7 @@ app.include_router(agents_router)
 
 # Initialize components
 fetcher = DataFetcher(settings.data)
+unified_fetcher = UnifiedDataFetcher()  # V9.0: Multi-source fetcher
 risk_mgr = RiskManager(settings.risk)
 executor = AlpacaExecutor(settings.execution)
 egarch_model = EGARCHVolatilityModel(settings.egarch)
@@ -113,14 +117,19 @@ async def _check_rate_limit(client_ip: str = "default") -> bool:
 
 async def _analyze_pair(base, quote, mcts_iters=800,
                        source=SignalSource.KALMAN_MCTS) -> TradeSignal:
-    """V7.0: Analyze a pair with Kalman filter state persistence."""
+    """V9.0: Analyze a pair with Kalman filter + Sentiment + Options detection."""
     try:
-        df = await fetcher.get_yfinance(base, quote, settings.data.default_period)
+        # V9.0: Use unified fetcher FIRST (Local CSV → yfinance → Generated)
+        # Local CSV is instant, no network needed
+        df = unified_fetcher.get_yfinance(base, quote, settings.data.default_period)
+        # Fallback to old fetcher if unified fails
+        if df is None or len(df) < 60:
+            df = await fetcher.get_yfinance(base, quote, settings.data.default_period)
         if df is None or len(df) < 60:
             raise HTTPException(503, f"Insufficient data for {base}/{quote}")
 
         pa, pb = df[base], df[quote]
-        
+
         # V7.0: Use persistent Kalman filter cache
         pair_key = f"{base}/{quote}"
         if pair_key not in _kalman_cache:
@@ -131,7 +140,7 @@ async def _analyze_pair(base, quote, mcts_iters=800,
                 logger.info(f"Evicted Kalman cache entry: {oldest_key}")
             _kalman_cache[pair_key] = MultivariateKalmanFilter(settings.kalman)
         kf = _kalman_cache[pair_key]
-        
+
         snapshot = None
         for i in range(len(pa)):
             snapshot = kf.step(float(pa.iloc[i]), float(pb.iloc[i]))
@@ -149,23 +158,97 @@ async def _analyze_pair(base, quote, mcts_iters=800,
         vol_scale = egarch_model.get_vol_scale(egarch_result.regime)
         mcts_result = mcts_engine.search(snapshot.spread, snapshot.innovation_var, vol_scale)
 
-        confidence = min(abs(snapshot.pure_z_score) / 3.0, 1.0) * (
+        # V9.0: Sentiment analysis (async, non-blocking with timeout)
+        sentiment_data = None
+        sentiment_adjusted_conf = None
+        try:
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+            _sentiment_result = [None, None]
+            def _compute_sent():
+                try:
+                    from core.sentiment import SentimentAnalyzer
+                    analyzer = SentimentAnalyzer()
+                    sb = analyzer.analyze_symbol(base)
+                    sq = analyzer.analyze_symbol(quote)
+                    comp = (sb.composite_score + sq.composite_score) / 2
+                    raw_c = min(abs(snapshot.pure_z_score) / 3.0, 1.0) * (1.0 if mcts_result.action != ActionType.HOLD else 0.3)
+                    _sentiment_result[0] = {
+                        "score": round(comp, 3),
+                        "label": "BULLISH" if comp > 0.15 else "BEARISH" if comp < -0.15 else "NEUTRAL",
+                        "base_sentiment": {"score": sb.composite_score, "label": sb.label},
+                        "quote_sentiment": {"score": sq.composite_score, "label": sq.label},
+                        "news_avg": round((sb.news_score + sq.news_score) / 2, 3),
+                        "social_avg": round((sb.social_score + sq.social_score) / 2, 3),
+                    }
+                    _sentiment_result[1] = max(0.0, min(1.0, raw_c + comp * 0.2))
+                except Exception:
+                    pass
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_compute_sent)
+                fut.result(timeout=1.5)  # 1.5s timeout — don't block scan
+            if _sentiment_result[0] is not None:
+                sentiment_data = _sentiment_result[0]
+                sentiment_adjusted_conf = _sentiment_result[1]
+        except (FuturesTimeout, Exception):
+            pass  # Sentiment optional — scan works without it
+
+        raw_confidence = min(abs(snapshot.pure_z_score) / 3.0, 1.0) * (
             1.0 if mcts_result.action != ActionType.HOLD else 0.3
         )
+        confidence = sentiment_adjusted_conf if sentiment_adjusted_conf is not None else raw_confidence
+
+        # V9.0: Options spread detection for high-volatility pairs
+        options_details = None
+        if egarch_result.regime in (VolatilityRegime.ELEVATED, VolatilityRegime.CRISIS):
+            # Suggest options spread for high vol regimes
+            implied_move = egarch_result.annualized_vol * 0.15  # 15% of annual vol as daily expected move
+            options_details = {
+                "strategy": "calendar_spread" if egarch_result.regime == VolatilityRegime.ELEVATED else "iron_condor",
+                "expected_move_pct": round(implied_move, 3),
+                "volatility_regime": egarch_result.regime.value,
+                "recommended_dte": 30 if egarch_result.regime == VolatilityRegime.ELEVATED else 45,
+                "delta_target": 0.30,
+                "theta_decay_daily": round(implied_move * 0.05, 4),
+            }
+            # Upgrade action to options spread if conditions met
+            if confidence > 0.7 and abs(snapshot.pure_z_score) > 2.0:
+                if mcts_result.action.value == ActionType.LONG_SPREAD.value:
+                    from models import MCTSResult as MCTSResultModel
+                    mcts_result = MCTSResultModel(
+                        action=ActionType.LONG_OPTIONS_SPREAD,
+                        expected_value=mcts_result.expected_value,
+                        visit_distribution=mcts_result.visit_distribution,
+                        avg_reward_distribution=mcts_result.avg_reward_distribution,
+                    )
+                elif mcts_result.action.value == ActionType.SHORT_SPREAD.value:
+                    from models import MCTSResult as MCTSResultModel
+                    mcts_result = MCTSResultModel(
+                        action=ActionType.SHORT_OPTIONS_SPREAD,
+                        expected_value=mcts_result.expected_value,
+                        visit_distribution=mcts_result.visit_distribution,
+                        avg_reward_distribution=mcts_result.avg_reward_distribution,
+                    )
 
         parts = [
             f"Kalman Z={snapshot.pure_z_score:.2f} (b={snapshot.beta:.3f})",
             f"EGARCH vol={egarch_result.annualized_vol:.1%} [{egarch_result.regime.value}]",
             f"MCTS -> {mcts_result.action.value} (EV={mcts_result.expected_value:.3f})",
         ]
+        if sentiment_data:
+            parts.append(f"Sentiment: {sentiment_data['score']:+.3f} [{sentiment_data['label']}]")
         if egarch_result.leverage_gamma is not None:
             parts.append(f"Leverage g={egarch_result.leverage_gamma:.4f}")
+        if options_details:
+            parts.append(f"Options: {options_details['strategy']} (EV move: {implied_move:.1%})")
 
         return TradeSignal(
             pair=f"{base}/{quote}", action=mcts_result.action,
             confidence=round(confidence, 3), kalman=kalman_state,
             egarch=egarch_result, mcts=mcts_result, source=source,
             reasoning=" | ".join(parts),
+            sentiment=sentiment_data,
+            options_details=options_details,
+            sentiment_adjusted_confidence=round(sentiment_adjusted_conf, 3) if sentiment_adjusted_conf else None,
         )
 
     except HTTPException:
@@ -185,9 +268,56 @@ async def health():
             "kalman": True, "egarch": True, "mcts": True,
             "alpaca": executor.is_live, "fetcher": True,
             "persistence": True, "parallel_mcts": True,
-            "kelly_criterion": True,
+            "kelly_criterion": True, "sentiment": True,
         },
     )
+
+
+@app.get("/api/v1/sentiment/{symbol}")
+async def get_sentiment(symbol: str):
+    """Get sentiment analysis for a single symbol."""
+    try:
+        from core.sentiment import SentimentAnalyzer
+        analyzer = SentimentAnalyzer()
+        result = analyzer.analyze_symbol(symbol)
+        return {
+            "symbol": result.symbol,
+            "composite_score": result.composite_score,
+            "label": result.label,
+            "confidence": result.confidence,
+            "news_score": result.news_score,
+            "social_score": result.social_score,
+            "market_score": result.market_score,
+            "factors": result.factors,
+            "timestamp": result.timestamp,
+        }
+    except Exception as e:
+        return {"error": str(e), "symbol": symbol}
+
+
+@app.get("/api/v1/sentiment")
+async def get_sentiment_batch(symbols: str = ""):
+    """Get sentiment for multiple symbols (comma-separated)."""
+    if not symbols:
+        return {"error": "No symbols provided", "example": "?symbols=AAPL,MSFT,NVDA"}
+    try:
+        from core.sentiment import SentimentAnalyzer
+        analyzer = SentimentAnalyzer()
+        results = analyzer.analyze_batch([s.strip() for s in symbols.split(",")])
+        return {
+            "count": len(results),
+            "results": [
+                {
+                    "symbol": r.symbol, "composite_score": r.composite_score,
+                    "label": r.label, "confidence": r.confidence,
+                    "news_score": r.news_score, "social_score": r.social_score,
+                    "market_score": r.market_score, "factors": r.factors,
+                }
+                for r in results
+            ],
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/")
@@ -262,9 +392,14 @@ async def execute_signal(request: ExecuteRequest, request_ctx: Request):
                 simulated=request.dry_run,
             )
         
-        df = await fetcher.get_yfinance(request.base, request.quote)
-        price_base = float(df[request.base].iloc[-1])
-        price_quote = float(df[request.quote].iloc[-1])
+        # Reuse signal data instead of re-fetching (saves network call)
+        price_base = float(signal.kalman.alpha + signal.kalman.beta * signal.kalman.spread) if signal.kalman else 0
+        price_quote = price_base - signal.kalman.spread if signal.kalman else 0
+        # Fallback: fetch if kalman data unavailable
+        if price_base == 0 or price_quote == 0:
+            df = await fetcher.get_yfinance(request.base, request.quote)
+            price_base = float(df[request.base].iloc[-1])
+            price_quote = float(df[request.quote].iloc[-1])
         
         action = request.action if request.action != ActionType.HOLD else signal.action
         result = executor.execute(
@@ -279,6 +414,7 @@ async def execute_signal(request: ExecuteRequest, request_ctx: Request):
                 signal.pair, signal.action,
                 entry_z=signal.kalman.pure_z_score,
                 entry_spread=signal.kalman.spread,
+                quantity=request.qty or 1,
             )
         
         return result
@@ -347,6 +483,160 @@ async def get_risk_metrics():
     """V6.0: Get comprehensive risk metrics."""
     metrics = risk_mgr.get_risk_metrics()
     return RiskMetrics(**metrics)
+
+
+# ──────────────────────────────────────────────────────
+# V9.0: Crypto Scanning (CCXT — LIVE via Binance/Bybit)
+# ──────────────────────────────────────────────────────
+
+CRYPTO_PAIRS = [
+    {"base": "BTC", "quote": "ETH"},
+    {"base": "BTC", "quote": "SOL"},
+    {"base": "ETH", "quote": "SOL"},
+    {"base": "BTC", "quote": "BNB"},
+    {"base": "ETH", "quote": "BNB"},
+    {"base": "SOL", "quote": "AVAX"},
+    {"base": "BTC", "quote": "XRP"},
+    {"base": "ETH", "quote": "XRP"},
+    {"base": "SOL", "quote": "ADA"},
+    {"base": "BTC", "quote": "ADA"},
+    {"base": "ETH", "quote": "ADA"},
+    {"base": "BTC", "quote": "LINK"},
+    {"base": "ETH", "quote": "LINK"},
+    {"base": "SOL", "quote": "MATIC"},
+    {"base": "BTC", "quote": "DOGE"},
+]
+
+
+@app.get("/api/v1/scan/crypto/{pair}")
+async def scan_crypto_pair(pair: str, iterations: int = Query(800, ge=100, le=5000)):
+    """Scan a single crypto pair via CCXT (live Binance data)."""
+    # Normalize pair format
+    pair = pair.upper().replace("-", "_")
+    if "_" not in pair:
+        raise HTTPException(400, "Invalid pair format. Use BTC_ETH or BTC-ETH")
+
+    base, quote = pair.split("_", 1)
+    base_sym = f"{base}/USDT"
+    quote_sym = f"{quote}/USDT"
+
+    try:
+        exchange_id = "binance"
+        df = unified_fetcher.get_ccxt(base, quote, "1d", 500, exchange_id)
+        if df is None or len(df) < 60:
+            raise HTTPException(503, f"Insufficient crypto data for {base}/{quote}")
+
+        pa, pb = df[base_sym], df[quote_sym]
+
+        # Run through Kalman + EGARCH + MCTS
+        pair_key = f"CRYPTO:{base}/{quote}"
+        if pair_key not in _kalman_cache:
+            _kalman_cache[pair_key] = MultivariateKalmanFilter(settings.kalman)
+        kf = _kalman_cache[pair_key]
+
+        snapshot = None
+        for i in range(len(pa)):
+            snapshot = kf.step(float(pa.iloc[i]), float(pb.iloc[i]))
+
+        if snapshot is None or snapshot.is_divergent:
+            raise HTTPException(500, "Kalman filter produced invalid output")
+
+        kalman_state = KalmanState(
+            beta=snapshot.beta, alpha=snapshot.alpha,
+            spread=snapshot.spread, innovation_variance=snapshot.innovation_var,
+            pure_z_score=snapshot.pure_z_score, converged=snapshot.converged,
+        )
+
+        egarch_result = egarch_model.analyze(pa, cache_key=base)
+        vol_scale = egarch_model.get_vol_scale(egarch_result.regime)
+        mcts_result = mcts_engine.search(snapshot.spread, snapshot.innovation_var, vol_scale)
+
+        confidence = min(abs(snapshot.pure_z_score) / 3.0, 1.0) * (
+            1.0 if mcts_result.action != ActionType.HOLD else 0.3
+        )
+
+        parts = [
+            f"Kalman Z={snapshot.pure_z_score:.2f} (b={snapshot.beta:.3f})",
+            f"EGARCH vol={egarch_result.annualized_vol:.1%} [{egarch_result.regime.value}]",
+            f"MCTS -> {mcts_result.action.value} (EV={mcts_result.expected_value:.3f})",
+            f"Source: {exchange_id.upper()} (LIVE)",
+        ]
+
+        return TradeSignal(
+            pair=f"{base}/{quote}", action=mcts_result.action,
+            confidence=round(confidence, 3), kalman=kalman_state,
+            egarch=egarch_result, mcts=mcts_result, source=SignalSource.KALMAN_MCTS,
+            reasoning=" | ".join(parts),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Crypto scan error for {base}/{quote}: {e}")
+        raise HTTPException(500, f"Crypto scan failed: {str(e)}")
+
+
+@app.get("/api/v1/scan/crypto")
+async def scan_all_crypto(iterations: int = Query(800, ge=100, le=5000)):
+    """Scan all 15 crypto pairs via CCXT (live Binance data)."""
+    signals, errors = [], []
+    for p in CRYPTO_PAIRS:
+        try:
+            df = unified_fetcher.get_ccxt(p["base"], p["quote"], "1d", 500, "binance")
+            if df is None or len(df) < 60:
+                errors.append(f"{p['base']}/{p['quote']}: Insufficient data")
+                continue
+
+            base_sym = f"{p['base']}/USDT"
+            quote_sym = f"{p['quote']}/USDT"
+            pa, pb = df[base_sym], df[quote_sym]
+
+            pair_key = f"CRYPTO:{p['base']}/{p['quote']}"
+            if pair_key not in _kalman_cache:
+                _kalman_cache[pair_key] = MultivariateKalmanFilter(settings.kalman)
+            kf = _kalman_cache[pair_key]
+
+            snapshot = None
+            for i in range(len(pa)):
+                snapshot = kf.step(float(pa.iloc[i]), float(pb.iloc[i]))
+
+            if snapshot is None or snapshot.is_divergent:
+                errors.append(f"{p['base']}/{p['quote']}: Kalman diverged")
+                continue
+
+            kalman_state = KalmanState(
+                beta=snapshot.beta, alpha=snapshot.alpha,
+                spread=snapshot.spread, innovation_variance=snapshot.innovation_var,
+                pure_z_score=snapshot.pure_z_score, converged=snapshot.converged,
+            )
+
+            egarch_result = egarch_model.analyze(pa, cache_key=p["base"])
+            vol_scale = egarch_model.get_vol_scale(egarch_result.regime)
+            mcts_result = mcts_engine.search(snapshot.spread, snapshot.innovation_var, vol_scale)
+
+            confidence = min(abs(snapshot.pure_z_score) / 3.0, 1.0) * (
+                1.0 if mcts_result.action != ActionType.HOLD else 0.3
+            )
+
+            signals.append(TradeSignal(
+                pair=f"{p['base']}/{p['quote']}", action=mcts_result.action,
+                confidence=round(confidence, 3), kalman=kalman_state,
+                egarch=egarch_result, mcts=mcts_result, source=SignalSource.KALMAN_MCTS,
+                reasoning=f"CCXT Binance | Z={snapshot.pure_z_score:.2f} | EV={mcts_result.expected_value:.3f}",
+            ))
+        except Exception as e:
+            errors.append(f"{p['base']}/{p['quote']}: {str(e)}")
+
+    summary = {
+        "total_pairs": len(CRYPTO_PAIRS),
+        "successful": len(signals),
+        "failed": len(errors),
+        "buy_signals": sum(1 for s in signals if s.action in [ActionType.BUY, ActionType.LONG_SPREAD]),
+        "sell_signals": sum(1 for s in signals if s.action in [ActionType.SELL, ActionType.SHORT_SPREAD]),
+        "source": "CCXT_BINANCE_LIVE",
+    }
+
+    return {"scan_id": f"crypto_{int(time.time())}", "signals": signals, "errors": errors, "summary": summary}
 
 
 @app.get("/api/v1/theory")

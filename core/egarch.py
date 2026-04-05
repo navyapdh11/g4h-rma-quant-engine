@@ -42,6 +42,7 @@ class EGARCHVolatilityModel:
         self.cfg = cfg or EGARCHConfig()
         self._cache: Dict[str, _CachedFit] = {}
         self._failure_count: Dict[str, int] = {}
+        self._last_failure_time: Dict[str, float] = {}  # For circuit breaker recovery
 
     def _is_cache_valid(self, key: str) -> bool:
         if key not in self._cache:
@@ -81,7 +82,11 @@ class EGARCHVolatilityModel:
             logger.warning(f"Circuit breaker open for {cache_key}")
             return self._default_result()
         
-        log_ret = 100.0 * np.log(price_series / price_series.shift(1)).dropna()
+        # Sanitize: remove zero/negative prices before computing log returns
+        clean_prices = price_series[price_series > 0]
+        if len(clean_prices) < 10:
+            return self._ewma_fallback(np.array([0.0]))  # Insufficient clean data
+        log_ret = 100.0 * np.log(clean_prices / clean_prices.shift(1)).dropna()
         
         if len(log_ret) < 60:
             return self._default_result()
@@ -128,6 +133,7 @@ class EGARCHVolatilityModel:
             
             if cache_key:
                 self._failure_count[cache_key] = self._failure_count.get(cache_key, 0) + 1
+            self._last_failure_time[cache_key] = time.time()
         
         regime = self._classify_regime(annual_vol)
 

@@ -297,6 +297,7 @@ class RiskAgent(BaseAgent):
         self.max_portfolio_exposure = self.config.get("max_exposure", 100000)
         self.crisis_halt = self.config.get("crisis_halt", True)
         self.trades_today = 0
+        self._last_reset_date = datetime.now(timezone.utc).date()  # Auto-reset tracking
 
     @property
     def role(self) -> AgentRole:
@@ -309,6 +310,13 @@ class RiskAgent(BaseAgent):
     async def analyze(self, market_data: Dict[str, Any]) -> AgentSignal:
         """Evaluate risk and approve/reject trades."""
         try:
+            # Auto-reset daily counter when date changes
+            current_date = datetime.now(timezone.utc).date()
+            if current_date != self._last_reset_date:
+                logger.info(f"RiskAgent: Auto-resetting daily counter (new day: {current_date})")
+                self.trades_today = 0
+                self._last_reset_date = current_date
+
             pair = market_data.get("pair", "SPY/QQQ")
             proposed_signal = market_data.get("signal", SignalStrength.HOLD)
             proposed_qty = market_data.get("quantity", 10)
@@ -399,6 +407,8 @@ class SentinelAgent(BaseAgent):
         self.flash_crash_threshold = self.config.get("flash_threshold", cfg.sentinel_flash_crash_threshold)
         self.vol_spike_threshold = self.config.get("vol_spike", cfg.sentinel_vol_spike_threshold)
         self.liquidity_threshold = self.config.get("liquidity", 0.5)
+        self._emergency_state = False  # Track if emergency is active
+        self._affected_pairs = []  # Which pairs are affected
 
     @property
     def role(self) -> AgentRole:
@@ -409,9 +419,10 @@ class SentinelAgent(BaseAgent):
         return "Detects black swan events and market anomalies"
 
     async def analyze(self, market_data: Dict[str, Any]) -> AgentSignal:
-        """Monitor for extreme events."""
+        """Monitor for extreme events. Emits signals for each specific pair."""
         try:
             alerts = []
+            pair = market_data.get("pair", "SPY/QQQ")
 
             returns = market_data.get("recent_returns", [])
             if returns:
@@ -430,22 +441,26 @@ class SentinelAgent(BaseAgent):
                 alerts.append(f"Liquidity crisis: {current_volume:.0f} vs {avg_volume:.0f}")
 
             if alerts:
+                self._emergency_state = True
+                if pair not in self._affected_pairs:
+                    self._affected_pairs.append(pair)
                 return AgentSignal(
                     agent_id=self.agent_id,
                     agent_role=self.role,
                     timestamp=datetime.now(timezone.utc),
-                    pair="MARKET",
+                    pair=pair,
                     signal=SignalStrength.STRONG_SELL,
                     confidence=1.0,
                     reasoning="Sentinel: " + "; ".join(alerts),
                     metadata={"alerts": alerts, "emergency": True}
                 )
 
+            self._emergency_state = False
             return AgentSignal(
                 agent_id=self.agent_id,
                 agent_role=self.role,
                 timestamp=datetime.now(timezone.utc),
-                pair="MARKET",
+                pair=pair,
                 signal=SignalStrength.HOLD,
                 confidence=0.9,
                 reasoning="Sentinel: No anomalies detected",
@@ -454,6 +469,19 @@ class SentinelAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Sentinel error: {e}")
             return self._error_signal()
+
+    def is_emergency(self) -> bool:
+        """Check if emergency state is active."""
+        return self._emergency_state
+
+    def get_affected_pairs(self) -> list:
+        """Get list of affected pairs."""
+        return self._affected_pairs.copy()
+
+    def clear_emergency(self):
+        """Clear emergency state."""
+        self._emergency_state = False
+        self._affected_pairs = []
 
     def _error_signal(self) -> AgentSignal:
         return AgentSignal(

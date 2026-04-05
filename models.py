@@ -16,6 +16,8 @@ class ActionType(str, Enum):
     HOLD = "HOLD"
     BUY = "BUY"
     SELL = "SELL"
+    LONG_OPTIONS_SPREAD = "LONG_OPTIONS_SPREAD"
+    SHORT_OPTIONS_SPREAD = "SHORT_OPTIONS_SPREAD"
 
 
 class VolatilityRegime(str, Enum):
@@ -76,7 +78,7 @@ class ExecuteRequest(BaseModel):
     """Validated execution request."""
     base: str = Field(..., min_length=1, max_length=10, pattern=r"^[A-Z0-9\-\./]+$")
     quote: str = Field(..., min_length=1, max_length=10, pattern=r"^[A-Z0-9\-\./]+$")
-    action: ActionType
+    action: ActionType = Field(default=ActionType.HOLD)  # Default to HOLD
     qty: Optional[int] = Field(None, ge=1, le=10000)
     dry_run: bool = True
     
@@ -100,8 +102,8 @@ class KalmanState(BaseModel):
 
 class EGARCHResult(BaseModel):
     """EGARCH volatility analysis result."""
-    annualized_vol: float = Field(ge=0, le=3.0)  # Increased max to 300%
-    forecast_vol: float = Field(ge=0, le=3.0)
+    annualized_vol: float = Field(ge=0, le=5.0)  # Allow up to 500% for crisis regimes
+    forecast_vol: float = Field(ge=0, le=5.0)
     leverage_gamma: Optional[float] = Field(None, ge=-1.0, le=1.0)
     regime: VolatilityRegime
     params: Optional[Dict[str, Any]] = None  # Changed to Any for flexibility
@@ -127,6 +129,9 @@ class TradeSignal(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     reasoning: str = ""
     agent_signals: Optional[Dict[str, Any]] = None  # V6.0: Multi-agent signals
+    sentiment: Optional[Dict[str, Any]] = None  # V9.0: Sentiment analysis
+    options_details: Optional[Dict[str, Any]] = None  # V9.0: Options spread details
+    sentiment_adjusted_confidence: Optional[float] = None  # V9.0: Adjusted confidence
 
 
 class BacktestMetrics(BaseModel):

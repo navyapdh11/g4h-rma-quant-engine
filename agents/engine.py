@@ -69,6 +69,20 @@ class RealTimeTradingEngine:
         self._running = False
         self._auto_trade = False
         logger.info("Trading engine stopped")
+
+    def _check_emergency_state(self) -> bool:
+        """Check if Sentinel has detected an emergency."""
+        sentinel = self.orchestrator.agents.get("sentinel-01")
+        if sentinel and hasattr(sentinel, 'is_emergency'):
+            return sentinel.is_emergency()
+        return False
+
+    def _get_affected_pairs(self) -> list:
+        """Get list of pairs affected by Sentinel emergency."""
+        sentinel = self.orchestrator.agents.get("sentinel-01")
+        if sentinel and hasattr(sentinel, 'get_affected_pairs'):
+            return sentinel.get_affected_pairs()
+        return []
     
     async def run_loop(self):
         """Main trading loop."""
@@ -88,24 +102,34 @@ class RealTimeTradingEngine:
         try:
             # 1. Fetch fresh market data
             await self._fetch_market_data()
-            
-            # 2. Run all agents
+
+            # 2. Check for Sentinel emergency state before running agents
+            emergency_active = self._check_emergency_state()
+
+            # 3. Run all agents
             agent_signals = await self._run_agents()
-            
-            # 3. Get consensus
+
+            # 4. Get consensus
             for pair in self._market_data.keys():
+                # Include Sentinel signal in consensus if emergency is active
                 signal, confidence, reasoning = self.orchestrator.get_consensus(pair)
-                
-                # 4. Create decision
+
+                # Emergency override: if Sentinel detected anomaly, force STRONG_SELL
+                if emergency_active and pair in self._get_affected_pairs():
+                    signal = SignalStrength.STRONG_SELL
+                    confidence = max(confidence, 0.8)  # At least 0.8 confidence
+                    reasoning += " [EMERGENCY: Sentinel override active]"
+
+                # 5. Create decision
                 decision = self._create_decision(pair, signal, confidence, reasoning, agent_signals)
-                
-                # 5. Execute if auto-trading enabled
+
+                # 6. Execute if auto-trading enabled
                 if self._auto_trade and decision.action == "EXECUTE":
                     await self._execute_decision(decision)
-                
-                # 6. Broadcast to WebSocket clients
+
+                # 7. Broadcast to WebSocket clients
                 await self._broadcast(decision)
-                
+
         except Exception as e:
             logger.error(f"Trading engine tick error: {e}")
     

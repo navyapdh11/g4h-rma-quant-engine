@@ -326,8 +326,12 @@ class ConnectionManager:
 
     def get_active_providers(self) -> Dict[str, Any]:
         """Get all active (connected) provider instances."""
-        return {k: v for k, v in self._providers.items()
-                if self._statuses.get(k).status == ConnectionStatus.CONNECTED}
+        result = {}
+        for k, v in self._providers.items():
+            status_info = self._statuses.get(k)
+            if status_info and status_info.status == ConnectionStatus.CONNECTED:
+                result[k] = v
+        return result
 
     def _create_execution(self, provider: str, cfg: ConnectionConfig):
         """Create an execution provider instance from config."""

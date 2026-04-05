@@ -35,14 +35,34 @@ logging.basicConfig(
 
 def _setup_graceful_shutdown():
     """V8.0: Register signal handlers for graceful shutdown."""
+    _shutting_down = False
     def handler(signum, frame):
+        nonlocal _shutting_down
+        if _shutting_down:
+            return  # Prevent recursion
+        _shutting_down = True
         sig_name = signal.Signals(signum).name
         logging.info(f"Received {sig_name} — shutting down gracefully...")
-        # Kill all child processes (uvicorn workers)
+        # Kill child processes only (not self)
         try:
-            pgid = os.getpgid(0)
-            os.killpg(pgid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
+            try:
+                import subprocess
+                children = subprocess.check_output(
+                    ["pgrep", "-P", str(os.getpid())], text=True
+                ).strip().split()
+                for child_pid in children:
+                    if child_pid and child_pid != str(os.getpid()):
+                        os.kill(int(child_pid), signal.SIGTERM)
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                # Fallback: try psutil
+                try:
+                    import psutil
+                    parent = psutil.Process(os.getpid())
+                    for child in parent.children(recursive=True):
+                        child.send_signal(signal.SIGTERM)
+                except (ImportError, Exception):
+                    pass  # Best effort: couldn't find children processes
+        except (OSError, ProcessLookupError, subprocess.CalledProcessError):
             pass
         sys.exit(0)
 

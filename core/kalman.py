@@ -78,7 +78,11 @@ class MultivariateKalmanFilter:
         # Innovation
         y = z - H @ x_pred
         S = (H @ P_pred @ H.T).item() + self.R_val
-        S = max(S, self.MIN_INNOVATION_VAR)
+        # Protect against inf/NaN from overflow
+        if not (0 < S < 1e10):
+            S = self.MIN_INNOVATION_VAR
+        else:
+            S = max(S, self.MIN_INNOVATION_VAR)
         
         # Kalman Gain
         PHt = P_pred @ H.T
@@ -105,6 +109,7 @@ class MultivariateKalmanFilter:
         if np.max(eigvals) > self.cfg.max_eigenvalue:
             logger.warning("Kalman divergence detected — resetting covariance")
             self.P = np.eye(2) * self.cfg.initial_covariance
+            self.x = np.array([[1.0], [0.0]])  # Reset state to beta=1, alpha=0
             condition_number = 1.0
         
         spread = float(y.flatten()[0])

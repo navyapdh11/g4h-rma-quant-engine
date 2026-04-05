@@ -41,6 +41,15 @@
         .signal-hold { background: linear-gradient(135deg, #4b5563, #6b7280); }
         .signal-sell { background: linear-gradient(135deg, #dc2626, #ef4444); }
         .signal-strong-sell { background: linear-gradient(135deg, #991b1b, #dc2626); }
+        .signal-options-long { background: linear-gradient(135deg, #7c3aed, #a855f7); }
+        .signal-options-short { background: linear-gradient(135deg, #ea580c, #f97316); }
+        /* Sentiment gauge styles */
+        .sentiment-gauge { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: linear-gradient(to right, #ef4444 0%, #f59e0b 50%, #10b981 100%); position: relative; }
+        .sentiment-marker { position: absolute; top: -2px; width: 4px; height: 12px; background: white; border-radius: 2px; border: 1px solid #333; }
+        .sentiment-bullish { color: #10b981; }
+        .sentiment-bearish { color: #ef4444; }
+        .sentiment-neutral { color: #9ca3af; }
+        .options-badge { background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; font-size: 0.6rem; padding: 1px 4px; border-radius: 3px; margin-left: 4px; }
     </style>
 </head>
 <body class="bg-primary text-gray-100 min-h-screen">
@@ -2287,9 +2296,25 @@
             const spread = (data.kalman?.spread || 0).toFixed(4);
             const vol = (data.egarch?.annualized_vol || 0.2).toFixed(1);
 
+            // Sentiment display
+            const sent = data.sentiment || {};
+            const sentScore = sent.score || 0;
+            const sentLabel = sent.label || 'NEUTRAL';
+            const sentClass = sentScore > 0.15 ? 'sentiment-bullish' : sentScore < -0.15 ? 'sentiment-bearish' : 'sentiment-neutral';
+            const markerPos = Math.max(0, Math.min(100, (sentScore + 1) * 50));  // -1..1 -> 0..100
+
+            // Options badge
+            const optionsBadge = data.options_details ? `<span class="options-badge" title="${data.options_details.strategy}">OPT</span>` : '';
+
             let signalClass = 'bg-gray-600';
             let signalText = 'HOLD';
-            if (action === 'LONG_SPREAD' || action === 'BUY') {
+            if (action === 'LONG_OPTIONS_SPREAD') {
+                signalClass = 'signal-options-long';
+                signalText = 'OPT LONG';
+            } else if (action === 'SHORT_OPTIONS_SPREAD') {
+                signalClass = 'signal-options-short';
+                signalText = 'OPT SHORT';
+            } else if (action === 'LONG_SPREAD' || action === 'BUY') {
                 signalClass = confidence > 0.6 ? 'signal-strong-buy' : 'signal-buy';
                 signalText = confidence > 0.6 ? 'STRONG BUY' : 'BUY';
             } else if (action === 'SHORT_SPREAD' || action === 'SELL') {
@@ -2299,9 +2324,10 @@
 
             row.cells[6].innerHTML = `
                 <div class="space-y-1">
-                    <span class="inline-block px-2 py-0.5 rounded text-white text-xs font-bold ${signalClass}">${signalText}</span>
-                    <div class="text-xs text-gray-500">Conf: ${(confidence * 100).toFixed(0)}%</div>
-                    <div class="text-xs text-gray-500">Z: ${zScore} | σ: ${vol}</div>
+                    <span class="inline-block px-2 py-0.5 rounded text-white text-xs font-bold ${signalClass}">${signalText}${optionsBadge}</span>
+                    <div class="sentiment-gauge"><div class="sentiment-marker" style="left:${markerPos}%"></div></div>
+                    <div class="text-xs ${sentClass}">Sent: ${sentScore >= 0 ? '+' : ''}${sentScore.toFixed(2)}</div>
+                    <div class="text-xs text-gray-500">Conf: ${(confidence * 100).toFixed(0)}% | Z: ${zScore}</div>
                 </div>
             `;
         }

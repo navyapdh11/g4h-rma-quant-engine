@@ -62,8 +62,10 @@ class RiskManager:
             return False, f"DAILY_LIMIT ({count}/{self.cfg.max_daily_trades})"
         
         if signal.pair in self._active_positions:
-            if signal.action == self._active_positions[signal.pair].action:
-                return False, f"DUPLICATE_POSITION ({signal.pair})"
+            existing = self._active_positions[signal.pair]
+            # Prevent ANY new position on same pair (even opposite direction)
+            # unless it's a HOLD signal (which closes the position)
+            return False, f"DUPLICATE_POSITION ({signal.pair})"
         
         if signal.confidence < self.cfg.min_confidence_threshold:
             return False, f"LOW_CONFIDENCE ({signal.confidence:.2f} < {self.cfg.min_confidence_threshold:.2f})"
@@ -107,7 +109,7 @@ class RiskManager:
             self._peak_pnl = cumulative
         # V8.0: Fixed drawdown — when peak is 0 or negative, drawdown is 0
         if self._peak_pnl > 0:
-            drawdown = (self._peak_pnl - cumulative) / self._peak_pnl
+            drawdown = (self._peak_pnl - cumulative) / max(self._peak_pnl, 1.0)  # Prevent div by zero
         else:
             drawdown = 0.0
         if drawdown > self._max_drawdown:
@@ -189,7 +191,7 @@ class RiskManager:
             "crisis_mode": self._circuit_breaker_open,
             "drawdown": self._max_drawdown,
             "var_95": self.get_var_95(),
-            "expected_shortfall": self.get_expected_shortfall(),
+            "expected_shortfall": self.get_expected_shortfall(),  # May be None if < 30 data points
             "max_drawdown": self._max_drawdown,
             "peak_pnl": self._peak_pnl,
         }
