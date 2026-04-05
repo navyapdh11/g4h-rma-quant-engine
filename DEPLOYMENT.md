@@ -1,4 +1,4 @@
-# G4H-RMA Quant Engine V6.0 — Deployment Guide
+# G4H-RMA Quant Engine V7.0 — Deployment Guide
 
 ## 📋 Table of Contents
 
@@ -10,6 +10,7 @@
 6. [Configuration](#configuration)
 7. [Monitoring](#monitoring)
 8. [Troubleshooting](#troubleshooting)
+9. [V7.0 Changelog](#v70-changelog)
 
 ---
 
@@ -418,3 +419,69 @@ For issues and questions:
 - Check logs: `./deploy.sh --logs`
 - Run diagnostics: `./monitor.sh --report`
 - Review documentation: `http://localhost:8000/docs`
+
+---
+
+## 📝 V7.0 Changelog
+
+### Critical Fixes
+
+1. **Kalman Filter State Persistence** (CRITICAL)
+   - **Before**: A new `MultivariateKalmanFilter` was created for EVERY API call, resetting to priors and producing zeroed z-scores for the first 30 steps
+   - **After**: Persistent Kalman filter cache per pair (`_kalman_cache: Dict[str, MultivariateKalmanFilter]`). Filters now maintain state across requests, producing accurate z-scores immediately
+
+2. **Thread-Safe Rate Limiting** (CRITICAL)
+   - **Before**: `_rate_limit_state` dict was not thread-safe; concurrent requests with `workers > 1` could bypass rate limits
+   - **After**: Asyncio lock (`_rate_limit_lock`) protects rate limit state. `_check_rate_limit` is now async and uses client IP from request context
+
+3. **Auto-Trading Engine Live Market Data** (CRITICAL)
+   - **Before**: Trading engine used hardcoded placeholder data (`SPY/QQQ` at fixed prices 450/400)
+   - **After**: Fetches live market data from configured equity pairs via `DataFetcher`. Scans top 5 pairs per tick with proper error handling and minimal fallback
+
+4. **Global Executor Initialization** (CRITICAL)
+   - **Before**: `_engine` global singleton created without executor parameter, making executor always `None`
+   - **After**: `get_trading_engine()` now imports and initializes `AlpacaExecutor`, passing it to `RealTimeTradingEngine`. Falls back to `None` with warning if init fails
+
+### Significant Enhancements
+
+5. **SQLite Persistence** (NEW)
+   - New `core/persistence.py` module with thread-safe SQLite backend
+   - Tables: `trades`, `positions`, `daily_stats` with automatic creation
+   - Methods: `record_trade`, `open_position`, `update_position`, `close_position`, `get_trade_history`, `get_open_positions`, `get_pnl_summary`
+   - WAL journal mode, busy timeout 5s, per-thread connections via `threading.local`
+   - Circuit breaker tracking and daily PnL aggregation
+
+6. **Partial-Fill Rollback** (NEW)
+   - Alpaca executor now detects partial fills and automatically rolls back
+   - `_rollback_legs()` submits opposite orders for any filled legs before error
+   - Rollback status reported in error response (`success_N_legs_reversed`, `failed_partial_rollback`, `not_attempted`)
+   - Quantity validation before order submission (rejects qty <= 0)
+
+7. **Reproducible MCTS Seeding** (NEW)
+   - Added `seed` parameter to `MCTSConfig` (default `None` for non-deterministic)
+   - `MCTSEngine.set_seed(seed)` and `get_seed()` methods for runtime control
+   - Backtests now use fixed seed (42) for reproducibility
+
+8. **WebSocket Message Size Limit** (SECURITY)
+   - Added 1MB message size limit to WebSocket endpoint (`MAX_WS_MESSAGE_SIZE = 1_048_576`)
+   - Prevents memory exhaustion attacks
+   - Returns error message and continues listening on oversized messages
+
+9. **Version Consistency**
+   - All version strings updated: V5.0/V6.0 → V7.0
+   - API version: `7.0.0-next-gen`
+   - Dashboard: Updated header, title, footer
+   - Documentation: Updated DEPLOYMENT.md, QUICKSTART.md references
+
+### Configuration Changes
+
+- `MCTSConfig.seed`: New optional field for reproducible backtesting
+- Health endpoint now reports `persistence: True` module flag
+- Theory endpoint updated to V7.0
+
+### Migration Notes
+
+- **No breaking changes**: All existing API endpoints remain compatible
+- **SQLite database**: Automatically created at `data/engine.db` on first use
+- **Kalman cache**: Existing behavior improved; no config changes needed
+- **Rate limiting**: Now properly enforced per-client-IP with async lock

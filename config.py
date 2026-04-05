@@ -1,7 +1,7 @@
 """
 G4H-RMA Configuration — Central, validated, typed.
 All magic numbers live here, not scattered across modules.
-V6.0: Added validation, security masking, and enhanced type safety.
+V8.0: Added Kelly criterion, parallel MCTS, multi-timeframe, advanced risk.
 """
 from __future__ import annotations
 import os
@@ -60,13 +60,23 @@ class MCTSConfig:
     vol_scale_high: float = 8.0
     vol_mid_threshold: float = 0.25
     vol_high_threshold: float = 0.40
-    adaptive_iterations: bool = True  # V6.0: Dynamic iterations based on regime
-    
+    adaptive_iterations: bool = True
+    seed: Optional[int] = None
+    # V8.0: Parallel search
+    parallel_workers: int = 4  # Number of parallel search threads
+    dynamic_depth: bool = True  # Dynamic tree depth based on volatility
+    max_depth: int = 20  # Maximum tree depth
+    # V8.0: Kelly criterion
+    kelly_fraction: float = 0.25  # Fraction of Kelly to use (conservative)
+    kelly_enabled: bool = True
+
     def __post_init__(self):
         if self.iterations < 100:
             raise ValueError("MCTS iterations must be >= 100")
         if self.iterations > 5000:
             raise ValueError("MCTS iterations must be <= 5000")
+        if self.parallel_workers < 1:
+            raise ValueError("Parallel workers must be >= 1")
 
 
 @dataclass
@@ -105,17 +115,32 @@ class DataConfig:
 
 @dataclass(frozen=True)
 class RiskConfig:
-    """V6.0: Comprehensive risk management configuration."""
+    """V8.0: Comprehensive risk management configuration."""
     max_daily_trades: int = 10
     max_position_notional: float = 25000.0
     max_portfolio_exposure: float = 100000.0
     max_correlation: float = 0.8
     crisis_halt: bool = True
     stop_loss_enabled: bool = True
-    stop_loss_z: float = 5.0  # Emergency exit z-score
-    take_profit_z: float = 0.5  # Take profit threshold
-    position_size_vol_scale: bool = True  # Scale position by volatility
-    max_drawdown_halt: float = 0.10  # Halt at 10% drawdown
+    stop_loss_z: float = 5.0
+    take_profit_z: float = 0.5
+    position_size_vol_scale: bool = True
+    max_drawdown_halt: float = 0.10
+    # V8.0: Advanced risk metrics
+    var_confidence: float = 0.95  # VaR confidence level
+    cvar_enabled: bool = True  # Conditional VaR (Expected Shortfall)
+    kelly_position_sizing: bool = True  # Use Kelly criterion
+    max_leverage: float = 2.0  # Maximum portfolio leverage
+    stress_test_enabled: bool = True  # Daily stress tests
+    correlation_lookback: int = 60  # Days for correlation calculation
+    # V8.0: Multi-timeframe analysis
+    timeframes: list = None  # Multiple timeframes for analysis
+    primary_timeframe: str = "1d"
+    secondary_timeframe: str = "4h"
+
+    def __post_init__(self):
+        if self.timeframes is None:
+            object.__setattr__(self, 'timeframes', ["1d", "4h", "1h"])
 
 
 @dataclass(frozen=True)
@@ -126,8 +151,13 @@ class APIConfig:
     workers: int = 1
     cors_origins: List[str] = field(default_factory=lambda: ["*"])
     request_timeout_seconds: int = 60
-    rate_limit_per_minute: int = 60  # V6.0: Rate limiting
-    enable_cors_restriction: bool = False  # V6.0: Security flag
+    rate_limit_per_minute: int = 60
+    enable_cors_restriction: bool = False
+    # V8.0: WebSocket streaming
+    websocket_enabled: bool = True
+    websocket_max_clients: int = 50
+    websocket_ping_interval: int = 30  # seconds
+    max_ws_message_size: int = 1_048_576  # 1MB
 
 
 @dataclass(frozen=True)

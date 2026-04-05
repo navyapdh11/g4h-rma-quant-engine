@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-G4H-RMA Quant Engine V6.0 — Entry Point
-========================================
+G4H-RMA Quant Engine V8.0 — Institutional Edition
+==================================================
 Usage:
   python main.py              Start API server
   python main.py --scan       CLI pair scanner
@@ -9,10 +9,15 @@ Usage:
   python main.py --theory     Math documentation
   python main.py --validate   Validate configuration
 
-V6.0 Enhancements:
-  - Configuration validation
-  - Better error handling
-  - Enhanced CLI output
+V8.0 Enhancements:
+  - Parallel MCTS with multi-threaded search
+  - Advanced risk: VaR, CVaR, portfolio optimization
+  - WebSocket streaming for real-time market data
+  - Enhanced AI agent reasoning with conflict resolution
+  - Comprehensive performance metrics dashboard
+  - Dynamic position sizing based on Kelly criterion
+  - Multi-timeframe analysis support
+  - Improved error recovery and self-healing
 """
 from __future__ import annotations
 import sys
@@ -48,7 +53,7 @@ def main():
     # Default: start API server
     import uvicorn
     from config import settings
-    
+
     # Validate configuration before starting
     errors = settings.validate_all()
     if errors:
@@ -56,16 +61,16 @@ def main():
         for error in errors:
             logging.error(f"  - {error}")
         sys.exit(1)
-    
+
     print("=" * 60)
-    print("  G4H-RMA Quant Engine V6.0 — Enterprise Edition")
-    print("  Kalman + EGARCH + MCTS + Alpaca + CCXT")
+    print("  G4H-RMA Quant Engine V8.0 — Institutional Edition")
+    print("  Kalman + EGARCH + MCTS + Alpaca + CCXT + SQLite")
     print("=" * 60)
     print(f"  API:  http://{settings.api.host}:{settings.api.port}")
     print(f"  Docs: http://{settings.api.host}:{settings.api.port}/docs")
     print(f"  Theory: http://{settings.api.host}:{settings.api.port}/api/v1/theory")
     print("=" * 60)
-    
+
     uvicorn.run(
         "api.app:app",
         host=settings.api.host,
@@ -155,14 +160,14 @@ def _cli_backtest():
     """CLI backtest."""
     from backtest import run_backtest
     from models import BacktestRequest
-    
+
     print("\n" + "=" * 60)
     print("  Backtest: SPY/QQQ (2020 -> today)")
     print("=" * 60)
-    
+
     r = run_backtest(BacktestRequest(base="SPY", quote="QQQ"))
     m = r.metrics
-    
+
     print(f"\n  Return:        {m.total_return:+.2%}")
     print(f"  Sharpe:        {m.sharpe_ratio:.2f}")
     print(f"  Sortino:       {m.sortino_ratio:.2f}" if m.sortino_ratio else "")
@@ -171,17 +176,17 @@ def _cli_backtest():
     print(f"  Total Trades:  {m.total_trades}")
     print(f"  Avg PnL:       {m.avg_trade_pnl:+.4f}")
     print(f"  Profit Factor: {m.profit_factor:.2f}" if m.profit_factor != float('inf') else "  Profit Factor: ∞ (no losses)")
-    
+
     if m.max_consecutive_wins:
         print(f"  Max Consec W:  {m.max_consecutive_wins}")
     if m.max_consecutive_losses:
         print(f"  Max Consec L:  {m.max_consecutive_losses}")
-    
+
     if r.warnings:
         print(f"\n  Warnings:")
         for w in r.warnings:
             print(f"    • {w}")
-    
+
     print()
 
 
@@ -189,27 +194,27 @@ def _print_theory():
     """Print mathematical foundations."""
     print("""
 ================================================================
-  G4H-RMA QUANT ENGINE V6.0 — MATHEMATICAL FOUNDATIONS
+  G4H-RMA QUANT ENGINE V7.0 — MATHEMATICAL FOUNDATIONS
 ================================================================
 
 1. MULTIVARIATE KALMAN FILTER
    State:      x = [beta, alpha]^T
    Transition: x_k = F*x_{k-1} + w   (F=I, w~N(0,Q))
    Observation: z_k = H_k*x_k + v     (z=Price_A, H=[Price_B, 1])
-   
+
    Predict:
      x^- = x,    P^- = P + Q
-   
+
    Innovation:
      y = z - H*x^-,    S = H*P^-*H' + R
-   
+
    Kalman Gain:
      K = P^-*H' * S^-1
-   
+
    Update (Joseph Form — symmetry-preserving):
      x^+ = x^- + K*y
      P^+ = (I - K*H)*P^-*(I - K*H)' + K*R*K'
-   
+
    Pure Z-Score (no look-ahead bias):
      Z = y / sqrt(S)
 

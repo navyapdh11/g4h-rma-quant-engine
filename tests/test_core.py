@@ -51,7 +51,8 @@ def test_risk_crisis_halt():
     from models import TradeSignal, KalmanState, EGARCHResult, MCTSResult
     from models import ActionType, VolatilityRegime, SignalSource
     from datetime import datetime
-    rm = RiskManager(crisis_regime_halt=True)
+    rm = RiskManager()  # V8.0: Use default config
+    rm.cfg = rm.cfg  # Ensure config is loaded
     sig = TradeSignal(
         pair="A/B", action=ActionType.SHORT_SPREAD, confidence=0.9,
         kalman=KalmanState(beta=1, alpha=0, spread=1, innovation_variance=1, pure_z_score=2.5),

@@ -110,19 +110,58 @@ class RealTimeTradingEngine:
             logger.error(f"Trading engine tick error: {e}")
     
     async def _fetch_market_data(self):
-        """Fetch latest market data."""
-        # This would integrate with the data fetcher
-        # For now, use placeholder data
-        self._market_data = {
-            "SPY/QQQ": {
-                "pair": "SPY/QQQ",
-                "price_base": 450.0,
-                "price_quote": 400.0,
-                "kalman": {"z_score": 1.2, "beta": 1.05},
-                "egarch": {"regime": "NORMAL", "annualized_vol": 0.22},
-                "mcts": {"expected_value": 0.08, "visit_distribution": {"LONG_SPREAD": 500, "HOLD": 200}},
+        """Fetch latest market data from configured pairs."""
+        # V7.0: Use live market data instead of placeholders
+        try:
+            from config import settings
+            from data.fetcher import DataFetcher
+            
+            fetcher = DataFetcher(settings.data)
+            market_data = {}
+            
+            # Scan equity pairs
+            for base, quote in settings.universe.equity_pairs[:5]:  # Limit to first 5 for performance
+                try:
+                    df = await fetcher.get_yfinance(base, quote, "5d")
+                    if df is not None and len(df) >= 10:
+                        pair_key = f"{base}/{quote}"
+                        price_base = float(df[base].iloc[-1])
+                        price_quote = float(df[quote].iloc[-1])
+                        market_data[pair_key] = {
+                            "pair": pair_key,
+                            "price_base": price_base,
+                            "price_quote": price_quote,
+                            "data_points": len(df),
+                        }
+                except Exception as e:
+                    logger.debug(f"Failed to fetch {base}/{quote}: {e}")
+                    continue
+            
+            # Fallback to minimal dataset if all fetches fail
+            if not market_data:
+                logger.warning("All market data fetches failed, using minimal fallback")
+                market_data = {
+                    "SPY/QQQ": {
+                        "pair": "SPY/QQQ",
+                        "price_base": 450.0,
+                        "price_quote": 400.0,
+                        "data_points": 0,
+                    }
+                }
+            
+            self._market_data = market_data
+            
+        except Exception as e:
+            logger.error(f"Market data fetch error: {e}")
+            # Fallback to minimal dataset
+            self._market_data = {
+                "SPY/QQQ": {
+                    "pair": "SPY/QQQ",
+                    "price_base": 450.0,
+                    "price_quote": 400.0,
+                    "data_points": 0,
+                }
             }
-        }
     
     async def _run_agents(self) -> List[AgentSignal]:
         """Run all agents on current market data."""
@@ -274,11 +313,11 @@ _engine: Optional[RealTimeTradingEngine] = None
 def get_trading_engine() -> RealTimeTradingEngine:
     """Get or create the global trading engine."""
     global _engine
-    
+
     if _engine is None:
         # Create orchestrator
         orchestrator = AgentOrchestrator()
-        
+
         # Create and register agents
         agent_configs = {
             "scout": {"pairs": ["SPY/QQQ", "GLD/SLV", "XOM/CVX"]},
@@ -287,12 +326,21 @@ def get_trading_engine() -> RealTimeTradingEngine:
             "risk": {"max_daily_trades": 10},
             "sentinel": {},
         }
-        
+
         for role, config in agent_configs.items():
             agent = create_agent(role, config)
             orchestrator.register_agent(agent)
-        
-        # Create engine
-        _engine = RealTimeTradingEngine(orchestrator)
-    
+
+        # V7.0: Import and pass executor for actual trade execution
+        try:
+            from config import settings
+            from execution.alpaca import AlpacaExecutor
+            executor = AlpacaExecutor(settings.execution)
+        except Exception as e:
+            logger.warning(f"Executor init failed: {e}. Running in simulation mode.")
+            executor = None
+
+        # Create engine with executor
+        _engine = RealTimeTradingEngine(orchestrator, executor=executor)
+
     return _engine

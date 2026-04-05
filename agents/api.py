@@ -1,10 +1,12 @@
 """
-Agents API — FastAPI routes and WebSocket endpoints V6.0
+Agents API — FastAPI routes and WebSocket endpoints V7.0
 =========================================================
 Fixed:
   - Added missing json import
   - Enhanced error handling
   - Better WebSocket management
+  - V7.0: WebSocket message size limit (1MB)
+  - V7.0: Input validation and sanitization
 """
 from __future__ import annotations
 import asyncio
@@ -68,6 +70,9 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+# V7.0: WebSocket message size limit (1MB)
+MAX_WS_MESSAGE_SIZE = 1_048_576  # 1MB in bytes
 
 
 def get_engine() -> RealTimeTradingEngine:
@@ -190,6 +195,13 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                # V7.0: WebSocket message size validation
+                if len(data.encode('utf-8')) > MAX_WS_MESSAGE_SIZE:
+                    await manager.send_personal(client_id, {
+                        "type": "error",
+                        "data": {"message": f"Message size exceeds {MAX_WS_MESSAGE_SIZE} bytes limit"},
+                    })
+                    continue
                 message = json.loads(data)  # Now works with json imported!
                 if message.get("type") == "ping":
                     await manager.send_personal(client_id, {"type": "pong"})

@@ -1,11 +1,12 @@
 """
-Alpaca Paper Trading Executor V6.0
+Alpaca Paper Trading Executor V7.0
 ===================================
 Enhanced with:
   - Better error handling
-  - Transactional execution
+  - Transactional execution with partial-fill rollback (V7.0)
   - Improved logging
   - Account info endpoint
+  - Quantity validation (V7.0)
 """
 from __future__ import annotations
 import logging
@@ -99,9 +100,13 @@ class AlpacaExecutor:
         # Live execution with rollback capability
         order_ids = []
         executed_legs = []
-        
+
         try:
             for symbol, (side, qty) in [(base, leg_a), (quote, leg_b)]:
+                # V7.0: Validate quantity before submission
+                if qty <= 0:
+                    raise ValueError(f"Invalid quantity for {symbol}: {qty}")
+                
                 order_qty = int(qty) if qty == int(qty) else qty
                 resp = self._api.submit_order(
                     symbol=symbol, qty=order_qty, side=side,
@@ -114,20 +119,57 @@ class AlpacaExecutor:
                     order_id=resp.id, status="submitted",
                     timestamp=resp.submitted_at.isoformat() if resp.submitted_at else "",
                 ))
-            
+
             return ExecutionResponse(
                 status="executed", action=action, pair=f"{base}/{quote}",
                 details=f"Filled: {leg_a[0]} {leg_a[1]} {base} + {leg_b[0]} {leg_b[1]} {quote}",
                 order_ids=order_ids,
             )
-            
+
         except Exception as e:
             logger.error(f"Execution error: {e}")
-            # Note: In production, implement rollback for partial fills
+            
+            # V7.0: Partial-fill rollback
+            rollback_status = "not_attempted"
+            if executed_legs:
+                logger.warning(f"Partial fill detected for {base}/{quote}. Executed legs: {executed_legs}. Initiating rollback...")
+                rollback_status = self._rollback_legs(executed_legs)
+            
             return ExecutionResponse(
                 status="error", action=action, pair=f"{base}/{quote}",
-                details=f"Execution failed: {str(e)}. Executed legs: {executed_legs}",
+                details=f"Execution failed: {str(e)}. Executed legs: {executed_legs}. Rollback: {rollback_status}",
             )
+
+    def _rollback_legs(self, executed_legs: List[tuple]) -> str:
+        """V7.0: Rollback partially filled legs by submitting opposite orders."""
+        if not self._api:
+            logger.error("Cannot rollback: API not available")
+            return "failed_no_api"
+        
+        rollback_orders = []
+        for symbol, side, qty in executed_legs:
+            try:
+                # Opposite side for rollback
+                opposite_side = "sell" if side == "buy" else "buy"
+                order_qty = int(qty) if qty == int(qty) else qty
+                
+                logger.info(f"Rollback: {opposite_side.upper()} {order_qty} {symbol}")
+                resp = self._api.submit_order(
+                    symbol=symbol, qty=order_qty, side=opposite_side,
+                    type="market", time_in_force="gtc",
+                )
+                rollback_orders.append(resp.id)
+                self._order_history.append(OrderRecord(
+                    symbol=symbol, side=opposite_side, qty=qty,
+                    order_id=resp.id, status="rollback",
+                    timestamp=resp.submitted_at.isoformat() if resp.submitted_at else "",
+                ))
+            except Exception as e:
+                logger.critical(f"Rollback failed for {symbol}: {e}")
+                return f"failed_partial_rollback: {str(e)}"
+        
+        logger.info(f"Rollback successful for {len(rollback_orders)} legs")
+        return f"success_{len(rollback_orders)}_legs_reversed"
 
     def get_history(self) -> List[Dict[str, Any]]:
         return [

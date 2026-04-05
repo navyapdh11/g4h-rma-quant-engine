@@ -1,11 +1,12 @@
 """
-Walk-forward backtest engine V6.0
+Walk-forward backtest engine V7.0
 ==================================
 Enhanced with:
   - Stop-loss support
   - Enhanced metrics (Sortino, Calmar)
   - Better error handling
   - Consecutive win/loss tracking
+  - V7.0: Reproducible MCTS seeding for deterministic backtests
 """
 from __future__ import annotations
 import numpy as np
