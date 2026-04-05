@@ -52,6 +52,22 @@ class YFinanceMarketData(MarketDataProvider):
         self.retry_delay = retry_delay
         self._cache: Dict[str, tuple] = {}  # symbol -> (data, timestamp)
         self._cache_ttl = 300  # 5 minutes
+        self._network_available: bool = self._check_network()
+        # When network is down, minimize retries and use larger simulated datasets
+        if not self._network_available:
+            self.retry_max = 1
+
+    def _check_network(self) -> bool:
+        """Quick network availability check."""
+        import socket
+        try:
+            socket.create_connection(("8.8.8.8", 53), timeout=1)
+            # Double-check with a second connection to confirm HTTP route
+            socket.create_connection(("1.1.1.1", 53), timeout=1)
+            return True
+        except Exception:
+            logger.warning("Network unavailable -- yfinance will use simulated data")
+            return False
     
     @property
     def name(self) -> str:
@@ -87,7 +103,7 @@ class YFinanceMarketData(MarketDataProvider):
             return self._cache[symbol][0]
         
         yf_interval = self.TIMEFRAME_MAP.get(timeframe, "1d")
-        
+
         # Determine period based on timeframe
         if start is None:
             if timeframe in ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"]:
@@ -100,7 +116,16 @@ class YFinanceMarketData(MarketDataProvider):
                 period = "2y"
         else:
             period = None
-        
+
+        # Skip expensive yfinance calls when network is unavailable
+        if not self._network_available:
+            bars = limit if limit and limit > 100 else 120
+            logger.debug(f"Network unavailable, using simulated data for {symbol}")
+            ohlcv = self._create_simulated_data(symbol, bars)
+            if timeframe == "1d":
+                self._cache[symbol] = (ohlcv, datetime.now())
+            return ohlcv
+
         for attempt in range(self.retry_max):
             try:
                 loop = asyncio.get_running_loop()
@@ -181,25 +206,40 @@ class YFinanceMarketData(MarketDataProvider):
         start: Optional[datetime],
         end: Optional[datetime],
     ) -> pd.DataFrame:
-        """Fetch data using yfinance (blocking)."""
+        """Fetch data using yfinance (blocking) with timeout protection."""
         import yfinance as yf
-        
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+
         ticker = yf.Ticker(symbol)
-        
+
+        def _do_fetch():
+            try:
+                if period:
+                    return ticker.history(period=period, interval=interval)
+                else:
+                    end_date = end or datetime.now()
+                    start_date = start or (end_date - timedelta(days=365))
+                    return ticker.history(start=start_date, end=end_date, interval=interval)
+            except Exception as e:
+                logger.error(f"yfinance fetch error for {symbol}: {e}")
+                return pd.DataFrame()
+
+        # Enforce a hard timeout so network hangs don't block the engine
+        timeout_sec = 5
         try:
-            if period:
-                df = ticker.history(period=period, interval=interval)
-            else:
-                end_date = end or datetime.now()
-                start_date = start or (end_date - timedelta(days=365))
-                df = ticker.history(start=start_date, end=end_date, interval=interval)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_fetch)
+                df = future.result(timeout=timeout_sec)
+        except FutTimeout:
+            logger.warning(f"yfinance fetch timed out for {symbol} after {timeout_sec}s")
+            return pd.DataFrame()
         except Exception as e:
             logger.error(f"yfinance fetch error for {symbol}: {e}")
             return pd.DataFrame()
-        
+
         if df.empty:
             return df
-        
+
         # Standardize column names
         df = df.rename(columns={
             "Open": "open",
@@ -208,11 +248,11 @@ class YFinanceMarketData(MarketDataProvider):
             "Close": "close",
             "Volume": "volume",
         })
-        
+
         # Use Adjusted Close if available
         if "Adj Close" in df.columns:
             df["close"] = df["Adj Close"]
-        
+
         return df[["open", "high", "low", "close", "volume"]]
     
     async def get_ticker(self, symbol: str) -> Ticker:

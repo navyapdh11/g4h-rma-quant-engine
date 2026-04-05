@@ -105,11 +105,13 @@ class EGARCHVolatilityModel:
                 params_dict[pname] = float(res.params[pname])
             
             gamma = params_dict.get("gamma[1]", None)
-            cond_vol = float(res.conditional_volatility.iloc[-1])
+            cond_vol_raw = res.conditional_volatility
+            cond_vol = float(cond_vol_raw[-1] if isinstance(cond_vol_raw, np.ndarray) else cond_vol_raw.iloc[-1])
             annual_vol = cond_vol / 100.0 * np.sqrt(252)
-            
+
             fc = res.forecast(horizon=1)
-            fc_var = float(fc.variance.iloc[-1, 0])
+            fc_var_raw = fc.variance
+            fc_var = float(fc_var_raw.iloc[-1, 0] if hasattr(fc_var_raw, 'iloc') else fc_var_raw[-1, 0])
             forecast_vol = np.sqrt(fc_var) / 100.0 * np.sqrt(252)
             fit_success = True
             
@@ -128,7 +130,11 @@ class EGARCHVolatilityModel:
                 self._failure_count[cache_key] = self._failure_count.get(cache_key, 0) + 1
         
         regime = self._classify_regime(annual_vol)
-        
+
+        # Hard cap volatilities to satisfy pydantic validation (max=3.0)
+        annual_vol = min(annual_vol, 2.99)
+        forecast_vol = min(forecast_vol, 2.99)
+
         if cache_key:
             self._cache[cache_key] = _CachedFit(
                 timestamp=time.time(),

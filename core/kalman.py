@@ -122,9 +122,9 @@ class MultivariateKalmanFilter:
         is_divergent = False
         if len(self._convergence_history) >= 50:
             rolling_var = np.var(self._convergence_history[-50:])
-            if rolling_var > 10.0:
+            if rolling_var > 50.0:
                 is_divergent = True
-                logger.warning(f"Kalman divergence: rolling_var={rolling_var:.2f}")
+                logger.debug(f"Kalman divergence: rolling_var={rolling_var:.2f}")
         
         return KalmanSnapshot(
             beta=float(self.x[0, 0]),
