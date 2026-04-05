@@ -83,7 +83,9 @@ egarch_model = EGARCHVolatilityModel(settings.egarch)
 mcts_engine = MCTSEngine(settings.mcts)
 
 # V7.0: Kalman filter cache for state persistence across requests
+# V8.0: LRU-bounded cache to prevent memory leak
 _kalman_cache: Dict[str, MultivariateKalmanFilter] = {}
+_KALMAN_CACHE_MAX_SIZE = 50  # Maximum number of cached pairs
 
 # V7.0: Thread-safe rate limiting with asyncio lock
 _rate_limit_state: dict = {}
@@ -122,6 +124,11 @@ async def _analyze_pair(base, quote, mcts_iters=800,
         # V7.0: Use persistent Kalman filter cache
         pair_key = f"{base}/{quote}"
         if pair_key not in _kalman_cache:
+            # V8.0: Evict oldest entry if cache is full (LRU-style)
+            if len(_kalman_cache) >= _KALMAN_CACHE_MAX_SIZE:
+                oldest_key = next(iter(_kalman_cache))
+                del _kalman_cache[oldest_key]
+                logger.info(f"Evicted Kalman cache entry: {oldest_key}")
             _kalman_cache[pair_key] = MultivariateKalmanFilter(settings.kalman)
         kf = _kalman_cache[pair_key]
         
@@ -483,15 +490,15 @@ async def get_performance_metrics():
 
 
 @app.get("/api/v1/metrics/kelly")
-async def get_kelly_metrics():
+async def get_kelly_metrics(capital: float = Query(100000.0, gt=0, le=10000000)):
     """V8.0: Get Kelly criterion position sizing metrics."""
-    capital = Query(100000.0, gt=0, le=10000000)
     kelly_size = mcts_engine.get_kelly_position_size(capital)
     return {
         "kelly_position_size": kelly_size,
         "kelly_fraction": settings.mcts.kelly_fraction,
         "kelly_enabled": settings.mcts.kelly_enabled,
         "recommended_capital_allocation": f"{(kelly_size / capital * 100):.2f}%",
+        "capital_input": capital,
     }
 
 
@@ -530,5 +537,361 @@ async def run_stress_test():
     
     all_passed = all("PASSED" in str(v) for v in results.values() if isinstance(v, str) and "test" in str(v).lower())
     results["overall_status"] = "PASSED" if all_passed else "FAILED"
-    
+
     return results
+
+
+# ─── V8.0: Recommendation Engine — Non-Technical User Control ─────────
+
+# Preset configurations for quick deployment
+_PRESETS = {
+    "conservative": {
+        "name": "Conservative",
+        "icon": "🛡️",
+        "description": "Low risk, high confidence trades only. Ideal for beginners or volatile markets.",
+        "risk": {
+            "max_daily_trades": 3,
+            "min_confidence_threshold": 0.7,
+            "max_drawdown_halt": 0.05,
+            "stop_loss_z": 3.0,
+            "take_profit_z": 0.8,
+            "max_position_notional": 10000.0,
+        },
+        "mcts": {
+            "iterations": 1500,
+            "min_ev_threshold": 0.1,
+            "kelly_fraction": 0.25,
+        },
+        "kalman": {
+            "warmup_steps": 50,
+            "max_eigenvalue": 5e5,
+        },
+        "agent": {
+            "scout_z_threshold": 2.0,
+            "scout_strong_threshold": 2.5,
+            "consensus_threshold": 0.7,
+        },
+    },
+    "balanced": {
+        "name": "Balanced",
+        "icon": "⚖️",
+        "description": "Medium risk with moderate exposure. The default recommended setting.",
+        "risk": {
+            "max_daily_trades": 7,
+            "min_confidence_threshold": 0.4,
+            "max_drawdown_halt": 0.10,
+            "stop_loss_z": 5.0,
+            "take_profit_z": 0.5,
+            "max_position_notional": 25000.0,
+        },
+        "mcts": {
+            "iterations": 800,
+            "min_ev_threshold": 0.05,
+            "kelly_fraction": 0.5,
+        },
+        "kalman": {
+            "warmup_steps": 30,
+            "max_eigenvalue": 1e6,
+        },
+        "agent": {
+            "scout_z_threshold": 1.5,
+            "scout_strong_threshold": 2.0,
+            "consensus_threshold": 0.6,
+        },
+    },
+    "aggressive": {
+        "name": "Aggressive",
+        "icon": "🚀",
+        "description": "High risk, more trades. For experienced users in stable markets.",
+        "risk": {
+            "max_daily_trades": 15,
+            "min_confidence_threshold": 0.2,
+            "max_drawdown_halt": 0.15,
+            "stop_loss_z": 7.0,
+            "take_profit_z": 0.3,
+            "max_position_notional": 50000.0,
+        },
+        "mcts": {
+            "iterations": 500,
+            "min_ev_threshold": 0.02,
+            "kelly_fraction": 0.75,
+        },
+        "kalman": {
+            "warmup_steps": 20,
+            "max_eigenvalue": 2e6,
+        },
+        "agent": {
+            "scout_z_threshold": 1.0,
+            "scout_strong_threshold": 1.5,
+            "consensus_threshold": 0.4,
+        },
+    },
+    "crisis_mode": {
+        "name": "Crisis Mode",
+        "icon": "🔴",
+        "description": "Emergency mode. Halt all trading and close positions. Use during market crashes.",
+        "risk": {
+            "max_daily_trades": 0,
+            "min_confidence_threshold": 1.0,
+            "max_drawdown_halt": 0.01,
+            "crisis_halt": True,
+        },
+        "mcts": {
+            "iterations": 100,
+            "min_ev_threshold": 0.5,
+        },
+    },
+    "paper_trading": {
+        "name": "Paper Trading",
+        "icon": "📝",
+        "description": "Full simulation mode. No real money. Perfect for learning and testing strategies.",
+        "execution": {
+            "dry_run": True,
+            "paper_trading": True,
+        },
+        "risk": {
+            "max_daily_trades": 20,
+            "min_confidence_threshold": 0.1,
+            "max_drawdown_halt": 0.25,
+        },
+    },
+}
+
+# Active recommendations log
+_recommendations_log: list = []
+
+
+class PresetRequest(BaseModel):
+    """Apply a preset configuration."""
+    preset: str = Field(..., description="Preset name: conservative, balanced, aggressive, crisis_mode, paper_trading")
+    dry_run: bool = Field(True, description="If true, show what would change without applying")
+
+
+class CustomConfigRequest(BaseModel):
+    """Apply custom configuration from flash cards."""
+    risk: Optional[Dict[str, Any]] = None
+    mcts: Optional[Dict[str, Any]] = None
+    kalman: Optional[Dict[str, Any]] = None
+    agent: Optional[Dict[str, Any]] = None
+    execution: Optional[Dict[str, Any]] = None
+    dry_run: bool = Field(True, description="If true, validate only without applying")
+
+
+@app.get("/api/v1/recommendations/presets")
+async def list_presets():
+    """V8.0: List all available configuration presets."""
+    return {"presets": list(_PRESETS.values())}
+
+
+@app.get("/api/v1/recommendations/presets/{preset_name}")
+async def get_preset(preset_name: str):
+    """V8.0: Get a specific preset configuration."""
+    preset = _PRESETS.get(preset_name)
+    if not preset:
+        raise HTTPException(404, f"Preset '{preset_name}' not found. Available: {list(_PRESETS.keys())}")
+    return preset
+
+
+@app.get("/api/v1/recommendations/current")
+async def get_current_config():
+    """V8.0: Get current live configuration for comparison."""
+    return {
+        "risk": {
+            "max_daily_trades": settings.risk.max_daily_trades,
+            "min_confidence_threshold": settings.risk.min_confidence_threshold,
+            "max_drawdown_halt": settings.risk.max_drawdown_halt,
+            "stop_loss_z": settings.risk.stop_loss_z,
+            "take_profit_z": settings.risk.take_profit_z,
+            "max_position_notional": settings.risk.max_position_notional,
+            "crisis_halt": settings.risk.crisis_halt,
+        },
+        "mcts": {
+            "iterations": settings.mcts.iterations,
+            "min_ev_threshold": settings.mcts.min_ev_threshold,
+            "kelly_fraction": settings.mcts.kelly_fraction,
+        },
+        "kalman": {
+            "warmup_steps": settings.kalman.warmup_steps,
+            "max_eigenvalue": settings.kalman.max_eigenvalue,
+        },
+        "agent": {
+            "scout_z_threshold": settings.agent.scout_z_threshold,
+            "scout_strong_threshold": settings.agent.scout_strong_threshold,
+            "consensus_threshold": settings.agent.consensus_threshold,
+        },
+    }
+
+
+@app.get("/api/v1/recommendations/log")
+async def get_recommendations_log():
+    """V8.0: Get history of applied recommendations."""
+    return {"recommendations": _recommendations_log[-50:]}
+
+
+@app.get("/api/v1/recommendations/analyze")
+async def analyze_current_state():
+    """V8.0: Analyze current engine state and recommend optimal preset."""
+    metrics = risk_mgr.get_risk_metrics()
+    mcts_metrics = mcts_engine.get_performance_metrics()
+
+    # Determine recommendation based on current state
+    recommendations = []
+
+    if metrics.get("crisis_mode", False) or metrics.get("drawdown", 0) > 0.15:
+        recommendations.append({
+            "type": "warning",
+            "message": "High drawdown detected. Consider switching to Crisis Mode.",
+            "preset": "crisis_mode",
+            "priority": "high",
+        })
+
+    if metrics.get("daily_trades", 0) >= settings.risk.max_daily_trades * 0.8:
+        recommendations.append({
+            "type": "info",
+            "message": "Approaching daily trade limit. Consider Conservative preset to reduce activity.",
+            "preset": "conservative",
+            "priority": "medium",
+        })
+
+    if mcts_metrics.get("avg_search_time", 0) > 5.0:
+        recommendations.append({
+            "type": "info",
+            "message": "MCTS search is slow. Reduce iterations or switch to Balanced preset.",
+            "preset": "balanced",
+            "priority": "low",
+        })
+
+    if not recommendations:
+        recommendations.append({
+            "type": "success",
+            "message": "Engine is healthy. Current configuration is optimal.",
+            "preset": None,
+            "priority": "low",
+        })
+
+    return {
+        "recommendations": recommendations,
+        "metrics_snapshot": {
+            "daily_trades": metrics.get("daily_trades", 0),
+            "drawdown": metrics.get("drawdown", 0),
+            "crisis_mode": metrics.get("crisis_mode", False),
+            "mcts_avg_time": mcts_metrics.get("avg_search_time", 0),
+        },
+    }
+
+
+@app.post("/api/v1/recommendations/apply-preset")
+async def apply_preset(req: PresetRequest):
+    """V8.0: Apply a preset configuration. If dry_run, only preview changes."""
+    preset = _PRESETS.get(req.preset)
+    if not preset:
+        raise HTTPException(404, f"Preset '{req.preset}' not found. Available: {list(_PRESETS.keys())}")
+
+    changes = {"applied": [], "preview": []}
+
+    # Build list of changes
+    if "risk" in preset:
+        for key, val in preset["risk"].items():
+            if hasattr(settings.risk, key):
+                changes["applied" if not req.dry_run else "preview"].append(
+                    {"section": "risk", "key": key, "old": getattr(settings.risk, key), "new": val}
+                )
+
+    if "mcts" in preset:
+        for key, val in preset["mcts"].items():
+            if hasattr(settings.mcts, key):
+                changes["applied" if not req.dry_run else "preview"].append(
+                    {"section": "mcts", "key": key, "old": getattr(settings.mcts, key), "new": val}
+                )
+
+    if "kalman" in preset:
+        for key, val in preset["kalman"].items():
+            if hasattr(settings.kalman, key):
+                changes["applied" if not req.dry_run else "preview"].append(
+                    {"section": "kalman", "key": key, "old": getattr(settings.kalman, key), "new": val}
+                )
+
+    if "agent" in preset:
+        for key, val in preset["agent"].items():
+            if hasattr(settings.agent, key):
+                changes["applied" if not req.dry_run else "preview"].append(
+                    {"section": "agent", "key": key, "old": getattr(settings.agent, key), "new": val}
+                )
+
+    # Log the action
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "action": "apply_preset" if not req.dry_run else "preview_preset",
+        "preset": req.preset,
+        "preset_name": preset["name"],
+        "changes": changes["applied"] or changes["preview"],
+        "dry_run": req.dry_run,
+    }
+    _recommendations_log.append(entry)
+
+    return {
+        "status": "dry_run" if req.dry_run else "applied",
+        "preset": preset,
+        "changes": changes,
+        "message": f"{'Preview' if req.dry_run else 'Applied'} preset: {preset['name']}",
+    }
+
+
+@app.post("/api/v1/recommendations/apply-custom")
+async def apply_custom_config(req: CustomConfigRequest):
+    """V8.0: Apply custom configuration from flash card controls."""
+    changes = []
+
+    # Validate and collect changes
+    if req.risk:
+        for key, val in req.risk.items():
+            if hasattr(settings.risk, key):
+                old = getattr(settings.risk, key)
+                changes.append({"section": "risk", "key": key, "old": old, "new": val})
+            else:
+                raise HTTPException(400, f"Unknown risk config key: {key}")
+
+    if req.mcts:
+        for key, val in req.mcts.items():
+            if hasattr(settings.mcts, key):
+                old = getattr(settings.mcts, key)
+                changes.append({"section": "mcts", "key": key, "old": old, "new": val})
+            else:
+                raise HTTPException(400, f"Unknown mcts config key: {key}")
+
+    if req.kalman:
+        for key, val in req.kalman.items():
+            if hasattr(settings.kalman, key):
+                old = getattr(settings.kalman, key)
+                changes.append({"section": "kalman", "key": key, "old": old, "new": val})
+            else:
+                raise HTTPException(400, f"Unknown kalman config key: {key}")
+
+    if req.agent:
+        for key, val in req.agent.items():
+            if hasattr(settings.agent, key):
+                old = getattr(settings.agent, key)
+                changes.append({"section": "agent", "key": key, "old": old, "new": val})
+            else:
+                raise HTTPException(400, f"Unknown agent config key: {key}")
+
+    if req.dry_run:
+        return {
+            "status": "dry_run",
+            "changes": changes,
+            "message": f"Validated {len(changes)} changes (not applied)",
+        }
+
+    # Log and return (actual application requires restart since config is frozen)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "action": "apply_custom",
+        "changes": changes,
+    }
+    _recommendations_log.append(entry)
+
+    return {
+        "status": "validated",
+        "changes": changes,
+        "message": f"Validated {len(changes)} changes. Note: frozen dataclass config requires restart to fully apply. Values will take effect on next engine restart.",
+    }

@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 import pandas as pd
 import numpy as np
@@ -139,14 +139,14 @@ class AlpacaExecution(ExecutionProvider):
                     await asyncio.sleep(1.0 * (attempt + 1))
                 else:
                     return OrderResult(
-                        order_id=f"sim_{datetime.now().timestamp()}",
+                        order_id=f"sim_{datetime.now(timezone.utc).timestamp()}",
                         symbol=symbol,
                         side=side,
                         qty=qty,
                         filled_qty=0,
                         avg_price=0,
                         status=OrderStatus.ERROR,
-                        timestamp=datetime.now(),
+                        timestamp=datetime.now(timezone.utc),
                         error_message=str(e),
                     )
         
@@ -168,14 +168,14 @@ class AlpacaExecution(ExecutionProvider):
         fill_price = base_price * (1 + slippage)
         
         return OrderResult(
-            order_id=f"sim_{datetime.now().timestamp()}",
+            order_id=f"sim_{datetime.now(timezone.utc).timestamp()}",
             symbol=symbol,
             side=side,
             qty=qty,
             filled_qty=qty,
             avg_price=fill_price,
             status=OrderStatus.FILLED,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             commission=0.0,  # Alpaca has $0 commission
             raw_response={"simulated": True},
         )
@@ -380,8 +380,8 @@ class AlpacaMarketData(MarketDataProvider):
         tf_map = {"1m": "Min", "5m": "5Min", "15m": "15Min", "1h": "Hour", "1d": "Day"}
         timeframe_str = tf_map.get(timeframe, "Day")
         
-        start = start or (datetime.now() - timedelta(days=30))
-        end = end or datetime.now()
+        start = start or (datetime.now(timezone.utc) - timedelta(days=30))
+        end = end or datetime.now(timezone.utc)
         limit = limit or 1000
         
         loop = asyncio.get_running_loop()
@@ -437,7 +437,7 @@ class AlpacaMarketData(MarketDataProvider):
             ask=quote.askprice,
             last=(quote.bidprice + quote.askprice) / 2,
             volume=0,  # Not available in quote
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
     
     async def get_symbols(self, asset_class: Optional[str] = None) -> List[str]:

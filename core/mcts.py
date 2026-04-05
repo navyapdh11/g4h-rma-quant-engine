@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import time
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple
 from config import MCTSConfig
@@ -240,10 +240,11 @@ class MCTSEngine:
 
         iterations = self._get_adaptive_iterations(vol_scale)
         
-        # V8.0: Parallel search
+        # V8.0: Parallel search with timeout safety
         if self.cfg.parallel_workers > 1:
             worker_iterations = max(100, iterations // self.cfg.parallel_workers)
-            
+            worker_timeout = 30.0  # seconds per worker
+
             with ThreadPoolExecutor(max_workers=self.cfg.parallel_workers) as executor:
                 futures = []
                 for i in range(self.cfg.parallel_workers):
@@ -253,9 +254,25 @@ class MCTSEngine:
                         worker_iterations, i
                     )
                     futures.append(future)
-                
-                roots = [f.result() for f in as_completed(futures)]
-            
+
+                roots = []
+                for f in as_completed(futures):
+                    try:
+                        root = f.result(timeout=worker_timeout)
+                        roots.append(root)
+                    except TimeoutError:
+                        logger.warning("MCTS worker timed out — skipping")
+                    except Exception as e:
+                        logger.error(f"MCTS worker error: {e}")
+
+            if not roots:
+                logger.warning("All MCTS workers failed — falling back to HOLD")
+                return MCTSResult(
+                    action=ActionType.HOLD, expected_value=0.0,
+                    visit_distribution={"HOLD": iterations},
+                    avg_reward_distribution={"HOLD": 0.0},
+                )
+
             root = self._merge_trees(roots)
         else:
             # Single-threaded fallback

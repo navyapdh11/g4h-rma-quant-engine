@@ -110,33 +110,83 @@ class RealTimeTradingEngine:
             logger.error(f"Trading engine tick error: {e}")
     
     async def _fetch_market_data(self):
-        """Fetch latest market data from configured pairs."""
-        # V7.0: Use live market data instead of placeholders
+        """Fetch latest market data from configured pairs.
+        
+        V8.0: Enriched with Kalman filter, EGARCH, and MCTS data
+        so all agents receive the complete signal structure they expect.
+        """
         try:
             from config import settings
             from data.fetcher import DataFetcher
-            
+            from core.kalman import MultivariateKalmanFilter
+            from core.egarch import EGARCHVolatilityModel
+            from core.mcts import MCTSEngine
+
             fetcher = DataFetcher(settings.data)
+            egarch_model = EGARCHVolatilityModel(settings.egarch)
+            mcts_engine = MCTSEngine(settings.mcts)
             market_data = {}
-            
+
             # Scan equity pairs
-            for base, quote in settings.universe.equity_pairs[:5]:  # Limit to first 5 for performance
+            for base, quote in settings.universe.equity_pairs[:5]:
                 try:
                     df = await fetcher.get_yfinance(base, quote, "5d")
-                    if df is not None and len(df) >= 10:
-                        pair_key = f"{base}/{quote}"
-                        price_base = float(df[base].iloc[-1])
-                        price_quote = float(df[quote].iloc[-1])
-                        market_data[pair_key] = {
-                            "pair": pair_key,
-                            "price_base": price_base,
-                            "price_quote": price_quote,
-                            "data_points": len(df),
-                        }
+                    if df is None or len(df) < 10:
+                        continue
+
+                    pair_key = f"{base}/{quote}"
+                    price_base = float(df[base].iloc[-1])
+                    price_quote = float(df[quote].iloc[-1])
+
+                    # Run Kalman filter over full history
+                    kf = MultivariateKalmanFilter(settings.kalman)
+                    snapshot = None
+                    pa, pb = df[base], df[quote]
+                    for i in range(len(pa)):
+                        snapshot = kf.step(float(pa.iloc[i]), float(pb.iloc[i]))
+
+                    # EGARCH analysis
+                    egarch_result = egarch_model.analyze(pa, cache_key=base)
+                    vol_scale = egarch_model.get_vol_scale(egarch_result.regime)
+
+                    # MCTS decision
+                    mcts_result = mcts_engine.search(
+                        snapshot.spread if snapshot else 0.0,
+                        snapshot.innovation_var if snapshot else 1.0,
+                        vol_scale,
+                    )
+
+                    market_data[pair_key] = {
+                        "pair": pair_key,
+                        "price_base": price_base,
+                        "price_quote": price_quote,
+                        "data_points": len(df),
+                        # V8.0: Full signal structure for all agents
+                        "kalman": {
+                            "z_score": snapshot.pure_z_score if snapshot else 0.0,
+                            "beta": snapshot.beta if snapshot else 1.0,
+                            "alpha": snapshot.alpha if snapshot else 0.0,
+                            "spread": snapshot.spread if snapshot else 0.0,
+                            "innovation_var": snapshot.innovation_var if snapshot else 1.0,
+                            "converged": snapshot.converged if snapshot else False,
+                            "is_divergent": snapshot.is_divergent if snapshot else True,
+                        },
+                        "egarch": {
+                            "annualized_vol": egarch_result.annualized_vol,
+                            "forecast_vol": egarch_result.forecast_vol,
+                            "regime": egarch_result.regime.value,
+                            "leverage_gamma": egarch_result.leverage_gamma,
+                        },
+                        "mcts": {
+                            "expected_value": mcts_result.expected_value,
+                            "action": mcts_result.action.value,
+                            "visit_distribution": mcts_result.visit_distribution,
+                        },
+                    }
                 except Exception as e:
                     logger.debug(f"Failed to fetch {base}/{quote}: {e}")
                     continue
-            
+
             # Fallback to minimal dataset if all fetches fail
             if not market_data:
                 logger.warning("All market data fetches failed, using minimal fallback")
@@ -146,20 +196,25 @@ class RealTimeTradingEngine:
                         "price_base": 450.0,
                         "price_quote": 400.0,
                         "data_points": 0,
+                        "kalman": {"z_score": 0.0, "beta": 1.0, "alpha": 0.0, "spread": 0.0, "innovation_var": 1.0, "converged": False, "is_divergent": True},
+                        "egarch": {"annualized_vol": 0.2, "forecast_vol": 0.2, "regime": "NORMAL", "leverage_gamma": None},
+                        "mcts": {"expected_value": 0.0, "action": "HOLD", "visit_distribution": {}},
                     }
                 }
-            
+
             self._market_data = market_data
-            
+
         except Exception as e:
             logger.error(f"Market data fetch error: {e}")
-            # Fallback to minimal dataset
             self._market_data = {
                 "SPY/QQQ": {
                     "pair": "SPY/QQQ",
                     "price_base": 450.0,
                     "price_quote": 400.0,
                     "data_points": 0,
+                    "kalman": {"z_score": 0.0, "beta": 1.0, "alpha": 0.0, "spread": 0.0, "innovation_var": 1.0, "converged": False, "is_divergent": True},
+                    "egarch": {"annualized_vol": 0.2, "forecast_vol": 0.2, "regime": "NORMAL", "leverage_gamma": None},
+                    "mcts": {"expected_value": 0.0, "action": "HOLD", "visit_distribution": {}},
                 }
             }
     

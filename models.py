@@ -1,6 +1,6 @@
 """
 Enterprise data models — strict typing, validation, documentation.
-V6.0: Enhanced validation, timezone safety, and new models.
+V8.0: Unified version, BUY/SELL actions, enhanced models.
 """
 from __future__ import annotations
 from datetime import datetime, timezone
@@ -14,6 +14,8 @@ class ActionType(str, Enum):
     LONG_SPREAD = "LONG_SPREAD"
     SHORT_SPREAD = "SHORT_SPREAD"
     HOLD = "HOLD"
+    BUY = "BUY"
+    SELL = "SELL"
 
 
 class VolatilityRegime(str, Enum):
@@ -174,10 +176,10 @@ class ExecutionResponse(BaseModel):
 class HealthResponse(BaseModel):
     """System health status."""
     status: str = "ok"
-    version: str = "6.0.0-enterprise"
+    version: str = "8.0.0-institutional"
     uptime_seconds: float = 0.0
     modules: Dict[str, bool] = Field(default_factory=dict)
-    errors: List[str] = Field(default_factory=list)  # V6.0
+    errors: List[str] = Field(default_factory=list)
 
 
 class AgentState(BaseModel):

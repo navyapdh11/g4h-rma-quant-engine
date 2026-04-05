@@ -65,8 +65,8 @@ class RiskManager:
             if signal.action == self._active_positions[signal.pair].action:
                 return False, f"DUPLICATE_POSITION ({signal.pair})"
         
-        if signal.confidence < 0.3:  # Default confidence threshold
-            return False, f"LOW_CONFIDENCE ({signal.confidence:.2f})"
+        if signal.confidence < self.cfg.min_confidence_threshold:
+            return False, f"LOW_CONFIDENCE ({signal.confidence:.2f} < {self.cfg.min_confidence_threshold:.2f})"
         
         if self._max_drawdown >= self.cfg.max_drawdown_halt:
             return False, f"MAX_DRAWDOWN ({self._max_drawdown:.1%})"
@@ -105,7 +105,11 @@ class RiskManager:
         cumulative = sum(self._pnl_history)
         if cumulative > self._peak_pnl:
             self._peak_pnl = cumulative
-        drawdown = (self._peak_pnl - cumulative) / max(self._peak_pnl, 1)
+        # V8.0: Fixed drawdown — when peak is 0 or negative, drawdown is 0
+        if self._peak_pnl > 0:
+            drawdown = (self._peak_pnl - cumulative) / self._peak_pnl
+        else:
+            drawdown = 0.0
         if drawdown > self._max_drawdown:
             self._max_drawdown = drawdown
         

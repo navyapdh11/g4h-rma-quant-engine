@@ -55,7 +55,7 @@
                         </svg>
                     </div>
                     <div>
-                        <h1 class="text-xl font-bold">G4H-RMA Quant Engine <span class="text-purple-400">V7.0</span></h1>
+                        <h1 class="text-xl font-bold">G4H-RMA Quant Engine <span class="text-purple-400">V8.0</span></h1>
                         <p class="text-xs text-gray-400">Multi-Agent Trading System</p>
                     </div>
                 </div>
@@ -98,6 +98,12 @@
                 </button>
                 <button onclick="switchTab('guide')" id="tab-guide" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
                     📚 Guide
+                </button>
+                <button onclick="switchTab('equities')" id="tab-equities" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    🏛️ Equity Trading
+                </button>
+                <button onclick="switchTab('recommendations')" id="tab-recommendations" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
+                    🎯 Recommendations
                 </button>
             </div>
         </div>
@@ -622,6 +628,302 @@
                 </div>
             </div>
         </div>
+
+        <!-- Equity Trading Tab -->
+        <div id="tab-equities-content" class="tab-content hidden">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-3">
+                <div>
+                    <h2 class="text-lg font-semibold">🏛️ Equity Trading — 15 Liquid US Equity Pairs</h2>
+                    <p class="text-sm text-gray-400">Kalman + EGARCH + MCTS signals on high-liquidity, sector-aligned pairs</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="scanAllEquityPairs()" id="scan-all-btn" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                        📡 Scan All 15 Pairs
+                    </button>
+                    <button onclick="scanTop8Pairs()" class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                        ⚡ Scan Top 8 (Highest Liquidity)
+                    </button>
+                    <button onclick="executeEquitySpreadTrade()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                        💰 Execute Spread Trade ($100)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pair Reference Table -->
+            <div class="card-gradient rounded-xl p-4 border border-accent mb-6 overflow-x-auto">
+                <h3 class="text-sm font-semibold mb-3">📋 Pair Reference Table</h3>
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="text-gray-400 border-b border-accent">
+                            <th class="text-left py-2 pr-2">#</th>
+                            <th class="text-left py-2 pr-2">Base</th>
+                            <th class="text-left py-2 pr-2">Quote</th>
+                            <th class="text-left py-2 pr-2">Sector</th>
+                            <th class="text-left py-2 pr-2 hidden lg:table-cell">Why This Pair</th>
+                            <th class="text-left py-2 pr-2">Vol/Day</th>
+                            <th class="text-center py-2 pr-2">Signal</th>
+                            <th class="text-center py-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="equity-pairs-table-body">
+                        <tr><td colspan="8" class="text-center py-6 text-gray-500">Click "Scan All 15 Pairs" to load signals</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Trade Panel -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- Trade Execution Panel -->
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <h3 class="text-sm font-semibold mb-3">🎯 Quick Trade Execution</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Select Pair</label>
+                            <select id="equity-trade-pair" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                                <option value="">— Select a pair —</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">Capital ($)</label>
+                                <input type="number" id="equity-trade-capital" value="20" min="1" max="10000" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-400 mb-1">MCTS Iterations</label>
+                                <select id="equity-mcts-iter" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                                    <option value="400">400 (Fast)</option>
+                                    <option value="800" selected>800 (Standard)</option>
+                                    <option value="1200">1200 (Deep)</option>
+                                    <option value="2000">2000 (Ultra)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Mode</label>
+                            <div class="flex gap-2">
+                                <label class="flex items-center gap-1 text-xs">
+                                    <input type="radio" name="equity-mode" value="dry_run" checked class="accent-green-500"> 🟢 Paper Trade
+                                </label>
+                                <label class="flex items-center gap-1 text-xs">
+                                    <input type="radio" name="equity-mode" value="live" class="accent-red-500"> 🔴 Live (if configured)
+                                </label>
+                            </div>
+                        </div>
+                        <button onclick="executeSingleEquityTrade()" id="execute-single-btn" class="w-full bg-green-600 hover:bg-green-700 py-2 rounded-lg text-sm font-medium transition">
+                            ▶ Execute Trade
+                        </button>
+                    </div>
+                    <div id="single-trade-result" class="mt-3 hidden"></div>
+                </div>
+
+                <!-- Portfolio Spread Simulator -->
+                <div class="card-gradient rounded-xl p-5 border border-accent">
+                    <h3 class="text-sm font-semibold mb-3">💼 Portfolio Spread Simulator</h3>
+                    <p class="text-xs text-gray-400 mb-3">Diversify $100 across multiple pairs. Simulate 30-min holding period.</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Total Capital ($)</label>
+                            <input type="number" id="portfolio-capital" value="100" min="10" max="100000" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Holding Period (minutes)</label>
+                            <input type="number" id="holding-minutes" value="30" min="1" max="1440" class="w-full bg-secondary border border-accent rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                        </div>
+                        <button onclick="simulatePortfolioSpread()" id="simulate-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg text-sm font-medium transition">
+                            📊 Run 30-Min Simulation
+                        </button>
+                    </div>
+                    <div id="portfolio-sim-result" class="mt-3 hidden"></div>
+                </div>
+            </div>
+
+            <!-- P&L Statement Output -->
+            <div id="equity-pnl-statement" class="card-gradient rounded-xl p-5 border border-accent hidden">
+                <h3 class="text-sm font-semibold mb-3">📊 Profit & Loss Statement</h3>
+                <div id="pnl-statement-content"></div>
+            </div>
+        </div>
+
+        <!-- Recommendations Tab -->
+        <div id="tab-recommendations-content" class="tab-content hidden">
+            <h2 class="text-lg font-semibold mb-2">🎯 Recommendation Engine</h2>
+            <p class="text-sm text-gray-400 mb-6">Apply presets or fine-tune engine parameters — no coding required.</p>
+
+            <!-- Smart Recommendations Banner -->
+            <div id="rec-banner" class="card-gradient rounded-xl border border-accent mb-6 p-5">
+                <div class="flex items-start space-x-3">
+                    <span class="text-2xl">💡</span>
+                    <div>
+                        <h3 class="font-semibold mb-1">Smart Recommendation</h3>
+                        <p id="rec-message" class="text-sm text-gray-300">Analyzing engine state...</p>
+                        <button onclick="applyRecommendedPreset()" id="rec-apply-btn" class="mt-3 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition hidden">Apply Now</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Cards -->
+            <h3 class="text-md font-semibold mb-3">Quick Presets</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                <!-- Conservative -->
+                <div class="agent-card rounded-xl p-5 border border-accent hover:border-purple-500 transition cursor-pointer" onclick="previewPreset('conservative')">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <span class="text-3xl">🛡️</span>
+                        <div>
+                            <h4 class="font-bold text-lg">Conservative</h4>
+                            <span class="text-xs text-green-400">Low Risk</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-3">High confidence only. Max 3 trades/day. Ideal for beginners.</p>
+                    <div class="space-y-1 text-xs text-gray-500">
+                        <div class="flex justify-between"><span>Confidence Min</span><span class="text-purple-400">0.70</span></div>
+                        <div class="flex justify-between"><span>Daily Trades</span><span class="text-purple-400">3</span></div>
+                        <div class="flex justify-between"><span>Max Drawdown</span><span class="text-purple-400">5%</span></div>
+                    </div>
+                </div>
+                <!-- Balanced -->
+                <div class="agent-card rounded-xl p-5 border border-purple-500 hover:border-purple-400 transition cursor-pointer relative" onclick="previewPreset('balanced')">
+                    <div class="absolute top-2 right-2 bg-purple-600 text-xs px-2 py-0.5 rounded-full font-medium">Recommended</div>
+                    <div class="flex items-center space-x-3 mb-3">
+                        <span class="text-3xl">⚖️</span>
+                        <div>
+                            <h4 class="font-bold text-lg">Balanced</h4>
+                            <span class="text-xs text-blue-400">Medium Risk</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-3">Default settings. Moderate exposure. Good for most users.</p>
+                    <div class="space-y-1 text-xs text-gray-500">
+                        <div class="flex justify-between"><span>Confidence Min</span><span class="text-purple-400">0.40</span></div>
+                        <div class="flex justify-between"><span>Daily Trades</span><span class="text-purple-400">7</span></div>
+                        <div class="flex justify-between"><span>Max Drawdown</span><span class="text-purple-400">10%</span></div>
+                    </div>
+                </div>
+                <!-- Aggressive -->
+                <div class="agent-card rounded-xl p-5 border border-accent hover:border-purple-500 transition cursor-pointer" onclick="previewPreset('aggressive')">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <span class="text-3xl">🚀</span>
+                        <div>
+                            <h4 class="font-bold text-lg">Aggressive</h4>
+                            <span class="text-xs text-yellow-400">High Risk</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-3">More trades, lower thresholds. For experienced users.</p>
+                    <div class="space-y-1 text-xs text-gray-500">
+                        <div class="flex justify-between"><span>Confidence Min</span><span class="text-purple-400">0.20</span></div>
+                        <div class="flex justify-between"><span>Daily Trades</span><span class="text-purple-400">15</span></div>
+                        <div class="flex justify-between"><span>Max Drawdown</span><span class="text-purple-400">15%</span></div>
+                    </div>
+                </div>
+                <!-- Crisis Mode -->
+                <div class="agent-card rounded-xl p-5 border border-red-800 hover:border-red-500 transition cursor-pointer" onclick="previewPreset('crisis_mode')">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <span class="text-3xl">🔴</span>
+                        <div>
+                            <h4 class="font-bold text-lg text-red-400">Crisis Mode</h4>
+                            <span class="text-xs text-red-400">Emergency</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-3">Halt all trading. Close positions. Use during crashes.</p>
+                    <div class="space-y-1 text-xs text-gray-500">
+                        <div class="flex justify-between"><span>Daily Trades</span><span class="text-red-400">0</span></div>
+                        <div class="flex justify-between"><span>Confidence Min</span><span class="text-red-400">1.0</span></div>
+                    </div>
+                </div>
+                <!-- Paper Trading -->
+                <div class="agent-card rounded-xl p-5 border border-accent hover:border-purple-500 transition cursor-pointer" onclick="previewPreset('paper_trading')">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <span class="text-3xl">📝</span>
+                        <div>
+                            <h4 class="font-bold text-lg">Paper Trading</h4>
+                            <span class="text-xs text-blue-400">Simulation</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 mb-3">Full simulation. No real money. Perfect for learning.</p>
+                    <div class="space-y-1 text-xs text-gray-500">
+                        <div class="flex justify-between"><span>Mode</span><span class="text-blue-400">Dry Run</span></div>
+                        <div class="flex justify-between"><span>Daily Trades</span><span class="text-blue-400">20</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Flash Cards: Fine-Tune Controls -->
+            <h3 class="text-md font-semibold mb-3">⚙️ Fine-Tune Parameters</h3>
+            <div class="card-gradient rounded-xl border border-accent p-5 mb-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Risk Parameters -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-red-400 mb-3 flex items-center">
+                            <span class="mr-2">🛡️</span> Risk Parameters
+                        </h4>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-1">Max Daily Trades</label>
+                                <input type="range" id="fc-max-daily-trades" min="0" max="30" value="10" class="w-full accent-purple-600" oninput="document.getElementById('fc-max-daily-trades-val').textContent=this.value">
+                                <div class="flex justify-between text-xs text-gray-500"><span>0</span><span id="fc-max-daily-trades-val" class="text-purple-400 font-bold">10</span><span>30</span></div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-1">Min Confidence Threshold</label>
+                                <input type="range" id="fc-min-confidence" min="0" max="100" value="30" class="w-full accent-purple-600" oninput="document.getElementById('fc-min-confidence-val').textContent=(this.value/100).toFixed(2)">
+                                <div class="flex justify-between text-xs text-gray-500"><span>0.00</span><span id="fc-min-confidence-val" class="text-purple-400 font-bold">0.30</span><span>1.00</span></div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-1">Max Drawdown Halt (%)</label>
+                                <input type="range" id="fc-max-drawdown" min="1" max="30" value="10" class="w-full accent-purple-600" oninput="document.getElementById('fc-max-drawdown-val').textContent=this.value+'%'">
+                                <div class="flex justify-between text-xs text-gray-500"><span>1%</span><span id="fc-max-drawdown-val" class="text-purple-400 font-bold">10%</span><span>30%</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- MCTS & Analysis -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-green-400 mb-3 flex items-center">
+                            <span class="mr-2">🧠</span> MCTS & Analysis
+                        </h4>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-1">MCTS Iterations</label>
+                                <input type="range" id="fc-mcts-iterations" min="100" max="3000" step="100" value="800" class="w-full accent-purple-600" oninput="document.getElementById('fc-mcts-iterations-val').textContent=this.value">
+                                <div class="flex justify-between text-xs text-gray-500"><span>100</span><span id="fc-mcts-iterations-val" class="text-purple-400 font-bold">800</span><span>3000</span></div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-1">Kelly Fraction</label>
+                                <input type="range" id="fc-kelly-fraction" min="10" max="100" value="50" class="w-full accent-purple-600" oninput="document.getElementById('fc-kelly-fraction-val').textContent=(this.value/100).toFixed(2)">
+                                <div class="flex justify-between text-xs text-gray-500"><span>0.10</span><span id="fc-kelly-fraction-val" class="text-purple-400 font-bold">0.50</span><span>1.00</span></div>
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-400 block mb-1">Scout Z-Score Threshold</label>
+                                <input type="range" id="fc-scout-z" min="50" max="300" value="150" class="w-full accent-purple-600" oninput="document.getElementById('fc-scout-z-val').textContent=(this.value/100).toFixed(2)">
+                                <div class="flex justify-between text-xs text-gray-500"><span>0.50</span><span id="fc-scout-z-val" class="text-purple-400 font-bold">1.50</span><span>3.00</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Apply Button -->
+                <div class="mt-6 flex space-x-3">
+                    <button onclick="applyCustomConfig()" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition">Apply Changes</button>
+                    <button onclick="previewCustomConfig()" class="px-5 py-2 bg-accent hover:bg-highlight rounded-lg text-sm font-medium transition">Preview Only</button>
+                    <button onclick="loadCurrentConfig()" class="px-5 py-2 bg-secondary hover:bg-accent rounded-lg text-sm font-medium transition">Load Current Config</button>
+                </div>
+                <div id="fc-status" class="mt-3 text-sm hidden"></div>
+            </div>
+
+            <!-- Recommendation Log -->
+            <h3 class="text-md font-semibold mb-3">📋 Configuration History</h3>
+            <div class="card-gradient rounded-xl border border-accent overflow-hidden">
+                <div class="max-h-80 overflow-y-auto">
+                    <table class="w-full text-xs">
+                        <thead class="bg-accent">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-gray-400 font-medium">Time</th>
+                                <th class="px-4 py-2 text-left text-gray-400 font-medium">Action</th>
+                                <th class="px-4 py-2 text-left text-gray-400 font-medium">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rec-log-body" class="divide-y divide-accent">
+                            <tr><td colspan="3" class="px-4 py-4 text-gray-500 text-center">No changes recorded yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- Footer -->
@@ -661,6 +963,8 @@
             if (tab === 'connections') loadConnections();
             if (tab === 'pnl') loadPnL('today');
             if (tab === 'guide') renderGuide();
+            if (tab === 'equities') loadEquityPairs();
+            if (tab === 'recommendations') loadRecommendations();
         }
         
         // WebSocket connection
@@ -1427,6 +1731,197 @@
                 arrow.classList.add('rotate-90');
                 howtoOpen = i;
             }
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // V8.0: Recommendation Engine JavaScript
+        // ═══════════════════════════════════════════════════════════
+
+        async function loadRecommendations() {
+            // Load smart recommendations
+            try {
+                const resp = await fetch('/api/v1/recommendations/analyze');
+                const data = await resp.json();
+                const rec = data.recommendations?.[0];
+                if (rec) {
+                    document.getElementById('rec-message').textContent = rec.message;
+                    const btn = document.getElementById('rec-apply-btn');
+                    if (rec.preset) {
+                        btn.classList.remove('hidden');
+                        btn.dataset.preset = rec.preset;
+                    } else {
+                        btn.classList.add('hidden');
+                    }
+                    // Color based on type
+                    const banner = document.getElementById('rec-banner');
+                    if (rec.type === 'warning') {
+                        banner.className = 'card-gradient rounded-xl border border-red-800 mb-6 p-5';
+                    } else if (rec.type === 'success') {
+                        banner.className = 'card-gradient rounded-xl border border-green-800 mb-6 p-5';
+                    } else {
+                        banner.className = 'card-gradient rounded-xl border border-accent mb-6 p-5';
+                    }
+                }
+            } catch (e) {
+                document.getElementById('rec-message').textContent = 'Could not load recommendations.';
+            }
+
+            // Load recommendation log
+            try {
+                const resp = await fetch('/api/v1/recommendations/log');
+                const data = await resp.json();
+                const tbody = document.getElementById('rec-log-body');
+                if (data.recommendations && data.recommendations.length > 0) {
+                    tbody.innerHTML = data.recommendations.reverse().map(r => {
+                        const time = new Date(r.timestamp).toLocaleTimeString();
+                        const actionLabel = r.action.includes('dry_run') || r.action.includes('preview') ? '👁️ Preview' : '✅ Applied';
+                        const details = r.preset_name || `${r.changes?.length || 0} changes`;
+                        return `<tr class="hover:bg-accent/50"><td class="px-4 py-2 text-gray-400">${time}</td><td class="px-4 py-2">${actionLabel}</td><td class="px-4 py-2 text-gray-300">${details}</td></tr>`;
+                    }).join('');
+                }
+            } catch (e) {
+                console.error('Failed to load recommendation log:', e);
+            }
+        }
+
+        async function previewPreset(name) {
+            showFlashStatus(`Previewing preset: ${name}...`, 'info');
+            try {
+                const resp = await fetch('/api/v1/recommendations/apply-preset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ preset: name, dry_run: true }),
+                });
+                const data = await resp.json();
+                const changes = data.changes?.preview || data.changes?.applied || [];
+                showFlashStatus(`Preview: ${changes.length} changes for "${data.preset?.name || name}"`, 'info');
+                // Show confirmation dialog
+                if (confirm(`${data.preset?.icon || ''} ${data.preset?.name || name}\n\n${changes.length} configuration changes would be made.\n\nApply now?`)) {
+                    applyPreset(name);
+                }
+            } catch (e) {
+                showFlashStatus(`Error: ${e.message}`, 'danger');
+            }
+        }
+
+        async function applyPreset(name) {
+            showFlashStatus(`Applying preset: ${name}...`, 'info');
+            try {
+                const resp = await fetch('/api/v1/recommendations/apply-preset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ preset: name, dry_run: false }),
+                });
+                const data = await resp.json();
+                const changes = data.changes?.applied || [];
+                showFlashStatus(`✅ Applied preset "${data.preset?.name || name}" — ${changes.length} changes`, 'success');
+                loadRecommendations();
+            } catch (e) {
+                showFlashStatus(`Error: ${e.message}`, 'danger');
+            }
+        }
+
+        async function applyRecommendedPreset() {
+            const btn = document.getElementById('rec-apply-btn');
+            const preset = btn?.dataset.preset;
+            if (preset) {
+                applyPreset(preset);
+            }
+        }
+
+        async function loadCurrentConfig() {
+            showFlashStatus('Loading current configuration...', 'info');
+            try {
+                const resp = await fetch('/api/v1/recommendations/current');
+                const data = await resp.json();
+                // Populate sliders with current values
+                if (data.risk) {
+                    document.getElementById('fc-max-daily-trades').value = data.risk.max_daily_trades || 10;
+                    document.getElementById('fc-max-daily-trades-val').textContent = data.risk.max_daily_trades || 10;
+                    document.getElementById('fc-min-confidence').value = Math.round((data.risk.min_confidence_threshold || 0.3) * 100);
+                    document.getElementById('fc-min-confidence-val').textContent = (data.risk.min_confidence_threshold || 0.3).toFixed(2);
+                    document.getElementById('fc-max-drawdown').value = Math.round((data.risk.max_drawdown_halt || 0.1) * 100);
+                    document.getElementById('fc-max-drawdown-val').textContent = Math.round((data.risk.max_drawdown_halt || 0.1) * 100) + '%';
+                }
+                if (data.mcts) {
+                    document.getElementById('fc-mcts-iterations').value = data.mcts.iterations || 800;
+                    document.getElementById('fc-mcts-iterations-val').textContent = data.mcts.iterations || 800;
+                    document.getElementById('fc-kelly-fraction').value = Math.round((data.mcts.kelly_fraction || 0.5) * 100);
+                    document.getElementById('fc-kelly-fraction-val').textContent = (data.mcts.kelly_fraction || 0.5).toFixed(2);
+                }
+                if (data.agent) {
+                    document.getElementById('fc-scout-z').value = Math.round((data.agent.scout_z_threshold || 1.5) * 100);
+                    document.getElementById('fc-scout-z-val').textContent = (data.agent.scout_z_threshold || 1.5).toFixed(2);
+                }
+                showFlashStatus('Current configuration loaded. Adjust sliders as needed.', 'success');
+            } catch (e) {
+                showFlashStatus(`Error loading config: ${e.message}`, 'danger');
+            }
+        }
+
+        async function previewCustomConfig() {
+            await sendCustomConfig(true);
+        }
+
+        async function applyCustomConfig() {
+            await sendCustomConfig(false);
+        }
+
+        async function sendCustomConfig(dryRun) {
+            const statusEl = document.getElementById('fc-status');
+            statusEl.classList.remove('hidden');
+            statusEl.className = 'mt-3 text-sm text-blue-400';
+            statusEl.textContent = dryRun ? 'Validating...' : 'Applying...';
+
+            const payload = {
+                dry_run: dryRun,
+                risk: {
+                    max_daily_trades: parseInt(document.getElementById('fc-max-daily-trades').value),
+                    min_confidence_threshold: parseFloat(document.getElementById('fc-min-confidence').value),
+                    max_drawdown_halt: parseFloat(document.getElementById('fc-max-drawdown').value) / 100,
+                },
+                mcts: {
+                    iterations: parseInt(document.getElementById('fc-mcts-iterations').value),
+                    kelly_fraction: parseFloat(document.getElementById('fc-kelly-fraction').value),
+                },
+                agent: {
+                    scout_z_threshold: parseFloat(document.getElementById('fc-scout-z').value),
+                },
+            };
+
+            try {
+                const resp = await fetch('/api/v1/recommendations/apply-custom', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json();
+                if (dryRun) {
+                    statusEl.className = 'mt-3 text-sm text-blue-400';
+                    statusEl.textContent = `✅ Validated ${data.changes?.length || 0} changes (not applied). Restart engine to apply.`;
+                } else {
+                    statusEl.className = 'mt-3 text-sm text-green-400';
+                    statusEl.textContent = `✅ ${data.message}. Restart engine for full effect.`;
+                    loadRecommendations();
+                }
+            } catch (e) {
+                statusEl.className = 'mt-3 text-sm text-red-400';
+                statusEl.textContent = `❌ Error: ${e.message}`;
+            }
+        }
+
+        function showFlashStatus(message, type) {
+            const statusEl = document.getElementById('fc-status');
+            statusEl.classList.remove('hidden');
+            const colors = {
+                success: 'text-green-400',
+                danger: 'text-red-400',
+                info: 'text-blue-400',
+                warning: 'text-yellow-400',
+            };
+            statusEl.className = `mt-3 text-sm ${colors[type] || 'text-gray-400'}`;
+            statusEl.textContent = message;
+            setTimeout(() => statusEl.classList.add('hidden'), 8000);
         }
     </script>
 </body>

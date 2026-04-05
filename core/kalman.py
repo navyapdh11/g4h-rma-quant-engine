@@ -93,16 +93,17 @@ class MultivariateKalmanFilter:
         self.P = 0.5 * (self.P + self.P.T)
         
         # Check condition number
+        eigvals = np.array([1.0, 1.0])  # Default safe initialization
         try:
             eigvals = np.linalg.eigvalsh(self.P)
             condition_number = max(eigvals) / max(min(eigvals), 1e-10)
         except np.linalg.LinAlgError:
             condition_number = float('inf')
-            logger.warning("Eigenvalue computation failed")
-        
-        # Cap eigenvalues
+            logger.warning("Eigenvalue computation failed — P matrix may be ill-conditioned")
+
+        # Cap eigenvalues (eigvals is always defined now)
         if np.max(eigvals) > self.cfg.max_eigenvalue:
-            logger.warning(f"Kalman divergence detected — resetting")
+            logger.warning("Kalman divergence detected — resetting covariance")
             self.P = np.eye(2) * self.cfg.initial_covariance
             condition_number = 1.0
         

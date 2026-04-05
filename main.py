@@ -24,11 +24,30 @@ import sys
 import asyncio
 import logging
 import time
+import signal
+import os
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-7s | %(message)s",
 )
+
+
+def _setup_graceful_shutdown():
+    """V8.0: Register signal handlers for graceful shutdown."""
+    def handler(signum, frame):
+        sig_name = signal.Signals(signum).name
+        logging.info(f"Received {sig_name} — shutting down gracefully...")
+        # Kill all child processes (uvicorn workers)
+        try:
+            pgid = os.getpgid(0)
+            os.killpg(pgid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handler)
+    signal.signal(signal.SIGINT, handler)
 
 
 def main():
@@ -53,6 +72,9 @@ def main():
     # Default: start API server
     import uvicorn
     from config import settings
+
+    # V8.0: Setup graceful shutdown handlers
+    _setup_graceful_shutdown()
 
     # Validate configuration before starting
     errors = settings.validate_all()
@@ -194,7 +216,7 @@ def _print_theory():
     """Print mathematical foundations."""
     print("""
 ================================================================
-  G4H-RMA QUANT ENGINE V7.0 — MATHEMATICAL FOUNDATIONS
+  G4H-RMA QUANT ENGINE V8.0 — MATHEMATICAL FOUNDATIONS
 ================================================================
 
 1. MULTIVARIATE KALMAN FILTER

@@ -126,6 +126,7 @@ class RiskConfig:
     take_profit_z: float = 0.5
     position_size_vol_scale: bool = True
     max_drawdown_halt: float = 0.10
+    min_confidence_threshold: float = 0.3  # Minimum signal confidence to approve trade
     # V8.0: Advanced risk metrics
     var_confidence: float = 0.95  # VaR confidence level
     cvar_enabled: bool = True  # Conditional VaR (Expected Shortfall)

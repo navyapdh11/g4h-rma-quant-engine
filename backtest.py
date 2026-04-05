@@ -136,8 +136,13 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
             
             if should_exit:
                 exit_spread = spread_series.iloc[i]
-                pnl = ((exit_spread - entry_spread) if position == 1
-                       else (entry_spread - exit_spread)) / entry_price_a
+                # V8.0: Fixed PnL — spread is already the innovation (residual),
+                # so PnL is the change in spread divided by the entry spread magnitude
+                # to get a unitless return. Using entry_spread as notional base.
+                spread_change = exit_spread - entry_spread if position == 1 \
+                    else entry_spread - exit_spread
+                notional = abs(entry_spread) if abs(entry_spread) > 1e-8 else abs(entry_price_a)
+                pnl = spread_change / notional
                 trade_pnls.append(pnl)
                 
                 if pnl > 0:
