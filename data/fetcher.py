@@ -131,34 +131,55 @@ class DataFetcher:
 
     @staticmethod
     def _legacy_download(ticker_a, ticker_b, period):
-        """Legacy yfinance download (fallback)."""
+        """Legacy yfinance download (fallback) with timeout protection V10.0."""
         import yfinance as yf
+        import threading
         tickers = [ticker_a, ticker_b]
-        try:
-            raw = yf.download(tickers, period=period, progress=False, auto_adjust=False)  # timeout param not supported by yfinance
-            if raw.empty:
-                return None
-            if isinstance(raw.columns, pd.MultiIndex):
-                raw.columns = raw.columns.get_level_values(0)
-            price_col = "Adj Close" if "Adj Close" in raw.columns else "Close"
-            df = raw[price_col].copy()
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            available = [t for t in tickers if t in df.columns]
-            if len(available) < 2:
-                raw2 = yf.download(tickers, period=period, progress=False, auto_adjust=False)
-                if isinstance(raw2.columns, pd.MultiIndex):
-                    raw2.columns = raw2.columns.get_level_values(0)
-                df = raw2["Close"].copy()
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-                available = [t for t in tickers if t in df.columns]
-            if len(available) < 2:
-                return None
-            return df[available].dropna()
-        except Exception as e:
-            logger.error(f"Legacy download failed: {e}")
+        result = [None, None]  # [data, exception]
+
+        def _download():
+            try:
+                result[0] = yf.download(tickers, period=period, progress=False, auto_adjust=False)
+            except Exception as e:
+                result[1] = e
+
+        t = threading.Thread(target=_download)
+        t.daemon = True
+        t.start()
+        t.join(timeout=30)
+
+        if t.is_alive():
+            logger.error(f"yfinance download timed out after 30s for {ticker_a}/{ticker_b}")
             return None
+
+        if result[1]:
+            logger.error(f"Legacy download failed: {result[1]}")
+            return None
+
+        raw = result[0]
+        if raw is None or raw.empty:
+            # Second attempt with Close instead of Adj Close
+            t2 = threading.Thread(target=_download)
+            t2.daemon = True
+            t2.start()
+            t2.join(timeout=30)
+            if t2.is_alive():
+                logger.error(f"yfinance fallback download timed out after 30s for {ticker_a}/{ticker_b}")
+                return None
+            raw = result[0]
+            if raw is None or raw.empty:
+                return None
+
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = raw.columns.get_level_values(0)
+        price_col = "Adj Close" if "Adj Close" in raw.columns else "Close"
+        df = raw[price_col].copy()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        available = [t for t in tickers if t in df.columns]
+        if len(available) < 2:
+            return None
+        return df[available].dropna()
 
     async def get_ccxt(self, symbol_a, symbol_b, timeframe="1d",
                        limit=500, exchange_id="binance"):

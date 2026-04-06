@@ -1,6 +1,7 @@
 """
 G4H-RMA Configuration — Central, validated, typed.
 All magic numbers live here, not scattered across modules.
+V10.0: Added trading_days, per-source TTL, MCTS regime shift, Kalman eigenvalue interval.
 V8.0: Added Kelly criterion, parallel MCTS, multi-timeframe, advanced risk.
 """
 from __future__ import annotations
@@ -22,7 +23,14 @@ class KalmanConfig:
     measurement_noise: float = 1.0
     warmup_steps: int = 30
     max_eigenvalue: float = 1e6
-    
+    # V10.0: Compute eigenvalues every N steps (1 = every step, 10 = every 10 steps)
+    eigenvalue_check_interval: int = 10
+    # V10.0: Divergence detection
+    divergence_threshold: float = 50.0
+    divergence_history: int = 50
+    variance_healthy_threshold: float = 10.0
+    eigenvalue_floor: float = 1e-10
+
     def __post_init__(self):
         if self.warmup_steps < 10:
             raise ValueError("warmup_steps must be >= 10")
@@ -40,7 +48,13 @@ class EGARCHConfig:
     lookback_days: int = 756
     high_vol_annual: float = 0.40
     cache_ttl_seconds: int = 3600
-    
+    # V10.0: EWMA lambda (RiskMetrics standard = 0.94, crypto = 0.90)
+    ewma_lambda: float = 0.94
+    # V10.0: Trading days per year for annualization (252 equities, 365 crypto)
+    trading_days: int = 252
+    # V10.0: Optimizer tolerance
+    optimizer_tol: float = 1e-6
+
     def __post_init__(self):
         if self.lookback_days < 252:
             raise ValueError("EGARCH lookback should be at least 1 year (252 days)")
@@ -69,6 +83,12 @@ class MCTSConfig:
     # V8.0: Kelly criterion
     kelly_fraction: float = 0.25  # Fraction of Kelly to use (conservative)
     kelly_enabled: bool = True
+    # V10.0: Configurable regime shift probability (was hardcoded 0.05)
+    regime_shift_probability: float = 0.05
+    # V10.0: Depth penalty factor (was hardcoded 0.1)
+    depth_penalty_factor: float = 0.1
+    # V10.0: Parallel worker timeout (was hardcoded 30s)
+    parallel_worker_timeout: float = 30.0
 
     def __post_init__(self):
         if self.iterations < 100:
@@ -90,7 +110,7 @@ class ExecutionConfig:
     max_position_notional: float = 25000.0
     max_daily_loss: float = 5000.0  # V6.0: Daily loss limit
     stop_loss_pct: float = 0.02  # V6.0: Per-trade stop loss
-    
+
     def __repr__(self):
         """Mask sensitive fields in logs."""
         key_masked = f"***{self.alpaca_key[-4:]}" if self.alpaca_key else "NONE"
@@ -111,11 +131,15 @@ class DataConfig:
     retry_backoff: float = 1.5
     circuit_breaker_threshold: int = 5  # V6.0: Failures before opening
     circuit_breaker_timeout: int = 60  # V6.0: Seconds before retry
+    # V10.0: Per-source cache TTLs (seconds)
+    cache_ttl_equity: int = 3600    # 1 hour for daily equity data
+    cache_ttl_crypto: int = 300     # 5 min for intraday crypto data
+    cache_ttl_generated: int = 86400  # 24 hours for synthetic data
 
 
 @dataclass(frozen=True)
 class RiskConfig:
-    """V8.0: Comprehensive risk management configuration."""
+    """V10.0: Comprehensive risk management configuration."""
     max_daily_trades: int = 10
     max_position_notional: float = 25000.0
     max_portfolio_exposure: float = 100000.0

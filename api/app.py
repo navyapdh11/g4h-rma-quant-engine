@@ -1,5 +1,5 @@
 """
-FastAPI Application — Production REST API V8.0
+FastAPI Application — Production REST API V10.0
 ===============================================
 Enhanced with:
   - Kalman filter state persistence across requests
@@ -11,6 +11,12 @@ Enhanced with:
   - V8.0: WebSocket streaming support
   - V8.0: Comprehensive performance metrics
   - V8.0: Kelly criterion position sizing
+  - V10.0: Centralized version management
+  - V10.0: Proper dollar-based backtest PnL with commission/slippage
+  - V10.0: Drawdown circuit breaker reset
+  - V10.0: Position flip support (LONG↔SHORT)
+  - V10.0: Configurable VaR confidence level
+  - V10.0: yfinance timeout protection
 """
 from __future__ import annotations
 import asyncio
@@ -29,6 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from config import settings
+from __version__ import __version__, __version_short__, __version_full__
 from models import (
     ActionType, AssetPair, BacktestRequest, BacktestResponse,
     ExecuteRequest, ExecutionResponse, HealthResponse,
@@ -53,8 +60,8 @@ _start_time = time.time()
 
 app = FastAPI(
     title="G4H-RMA Quant Engine",
-    description="Enterprise Kalman + EGARCH + MCTS Pairs Trading V8.0",
-    version="8.0.0",
+    description=f"Enterprise Kalman + EGARCH + MCTS Pairs Trading {__version_short__}",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -68,6 +75,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# V10.0: Middleware to add rate limit headers to all responses
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response: Response = await call_next(request)
+        # Add rate limit headers to all responses
+        ip = request.client.host
+        async with _rate_limit_lock:
+            now = time.time()
+            minute_ago = now - 60
+            if ip in _rate_limit_state:
+                reqs = [t for t in _rate_limit_state[ip] if t > minute_ago]
+                remaining = max(0, _RATE_LIMIT - len(reqs))
+                reset_in = max(1.0, 60.0 - (now - min(reqs))) if reqs else 60.0
+            else:
+                remaining = _RATE_LIMIT
+                reset_in = 60.0
+        response.headers["X-RateLimit-Limit"] = str(_RATE_LIMIT)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(int(now + reset_in))
+        return response
+
+app.add_middleware(RateLimitHeadersMiddleware)
 
 # Mount static files
 import os
@@ -91,13 +124,14 @@ mcts_engine = MCTSEngine(settings.mcts)
 _kalman_cache: Dict[str, MultivariateKalmanFilter] = {}
 _KALMAN_CACHE_MAX_SIZE = 50  # Maximum number of cached pairs
 
-# V7.0: Thread-safe rate limiting with asyncio lock
+# V10.0: Thread-safe rate limiting with asyncio lock and response headers
 _rate_limit_state: dict = {}
 _rate_limit_lock = asyncio.Lock()
+_RATE_LIMIT = settings.api.rate_limit_per_minute
 
 
-async def _check_rate_limit(client_ip: str = "default") -> bool:
-    """V7.0: Thread-safe rate limiting with asyncio lock."""
+async def _check_rate_limit(client_ip: str = "default") -> Tuple[bool, int, float]:
+    """V10.0: Thread-safe rate limiting with remaining count and reset time."""
     now = time.time()
     minute_ago = now - 60
 
@@ -108,11 +142,19 @@ async def _check_rate_limit(client_ip: str = "default") -> bool:
         # Remove old requests
         _rate_limit_state[client_ip] = [t for t in _rate_limit_state[client_ip] if t > minute_ago]
 
-        if len(_rate_limit_state[client_ip]) >= settings.api.rate_limit_per_minute:
-            return False
+        remaining = max(0, _RATE_LIMIT - len(_rate_limit_state[client_ip]))
+        reset_in = 60.0  # Default reset time
+
+        if len(_rate_limit_state[client_ip]) >= _RATE_LIMIT:
+            # Calculate actual reset time
+            if _rate_limit_state[client_ip]:
+                oldest = min(_rate_limit_state[client_ip])
+                reset_in = max(1.0, 60.0 - (now - oldest))
+            return False, remaining, reset_in
 
         _rate_limit_state[client_ip].append(now)
-        return True
+        remaining = max(0, _RATE_LIMIT - len(_rate_limit_state[client_ip]))
+        return True, remaining, 60.0
 
 
 async def _analyze_pair(base, quote, mcts_iters=800,
@@ -262,7 +304,7 @@ async def _analyze_pair(base, quote, mcts_iters=800,
 async def health():
     return HealthResponse(
         status="ok",
-        version="8.0.0-institutional",
+        version=__version_full__,
         uptime_seconds=round(time.time() - _start_time, 1),
         modules={
             "kalman": True, "egarch": True, "mcts": True,
@@ -330,9 +372,10 @@ async def root():
 
 @app.post("/api/v1/scan", response_model=ScanResponse)
 async def scan_pairs(request: ScanRequest, request_ctx: Request):
-    if not await _check_rate_limit(request_ctx.client.host):
-        raise HTTPException(429, "Rate limit exceeded")
-    
+    allowed, remaining, reset_in = await _check_rate_limit(request_ctx.client.host)
+    if not allowed:
+        raise HTTPException(429, f"Rate limit exceeded. Retry in {reset_in:.0f}s")
+
     scan_id = uuid.uuid4().hex[:8]
     tasks = [
         _analyze_pair(p.base, p.quote, request.mcts_iterations)
@@ -371,8 +414,9 @@ async def scan_single(pair: str, iterations: int = Query(800, ge=100, le=5000)):
 
 @app.post("/api/v1/execute", response_model=ExecutionResponse)
 async def execute_signal(request: ExecuteRequest, request_ctx: Request):
-    if not await _check_rate_limit(request_ctx.client.host):
-        raise HTTPException(429, "Rate limit exceeded")
+    allowed, remaining, reset_in = await _check_rate_limit(request_ctx.client.host)
+    if not allowed:
+        raise HTTPException(429, f"Rate limit exceeded. Retry in {reset_in:.0f}s")
     
     try:
         signal = await _analyze_pair(request.base, request.quote)

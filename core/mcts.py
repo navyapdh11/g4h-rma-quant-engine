@@ -41,13 +41,16 @@ class _MCTSNode:
     total_reward: float = 0.0
     untried_actions: List[str] = field(default_factory=lambda: ["LONG_SPREAD", "SHORT_SPREAD", "HOLD"])
     depth: int = 0  # V8.0: Track depth for dynamic pruning
+    # V10.0: Config reference (set once by engine, shared across all nodes)
+    _node_cfg: Any = None
 
     def ucb1(self, c: float = 1.414) -> float:
         if self.visits == 0:
             return float("inf")
         exploit = self.total_reward / self.visits
-        # V8.0: Add depth penalty to encourage exploration
-        depth_penalty = 0.1 * self.depth
+        # V10.0: Configurable depth penalty from config
+        penalty_factor = self._node_cfg.depth_penalty_factor if self._node_cfg else 0.1
+        depth_penalty = penalty_factor * self.depth
         parent_visits = max(self.parent.visits, 1)  # Prevent log(0)
         explore = c * math.sqrt(math.log(parent_visits) / max(self.visits, 1)) - depth_penalty
         return exploit + explore
@@ -86,10 +89,10 @@ class MCTSEngine:
         return self._current_seed
 
     def _rollout(self, spread: float, S: float, vol_scale: float, rng: np.random.Generator = None) -> float:
-        """V8.0: Enhanced rollout with regime switching."""
+        """V10.0: Enhanced rollout with configurable regime switching."""
         if rng is None:
             rng = self._rng
-        
+
         dt = 1.0 / 252.0
         lam = self.cfg.mean_reversion_speed
         sigma = np.sqrt(max(S, 1e-8)) * vol_scale
@@ -97,9 +100,9 @@ class MCTSEngine:
 
         for step in range(self.cfg.rollout_steps):
             noise = rng.normal()
-            # V8.0: Add small regime-switching probability
+            # V10.0: Configurable regime-shift probability from config
             regime_shift = 0.0
-            if rng.random() < 0.05:  # 5% chance of regime shift
+            if rng.random() < self.cfg.regime_shift_probability:
                 regime_shift = rng.normal(0, sigma * 0.5)
             
             z += lam * (0.0 - z) * dt + sigma * np.sqrt(dt) * noise + regime_shift
@@ -137,20 +140,19 @@ class MCTSEngine:
         else:
             return int(self.cfg.max_depth * 0.5)
 
-    def _parallel_search(self, current_spread: float, current_S: float, 
+    def _parallel_search(self, current_spread: float, current_S: float,
                         vol_scale: float, iterations: int, worker_id: int) -> _MCTSNode:
-        """V8.0: Parallel search worker."""
-        # Each worker uses a different seed derived from worker_id
+        """V10.0: Parallel search worker with config propagation."""
         worker_rng = np.random.default_rng(self._current_seed + worker_id if self._current_seed else worker_id)
-        
-        root = _MCTSNode(state_spread=current_spread, state_S=current_S, depth=0)
+
+        root = _MCTSNode(state_spread=current_spread, state_S=current_S, depth=0, _node_cfg=self.cfg)
         max_depth = self._get_max_depth(vol_scale)
 
         for _ in range(iterations):
             node = root
 
             # SELECTION with depth limit
-            while (node.is_leaf() and node.is_fully_expanded() and node.children 
+            while (node.is_leaf() and node.is_fully_expanded() and node.children
                    and node.depth < max_depth):
                 node = node.best_child_ucb(self.cfg.exploration_constant)
 
@@ -164,6 +166,7 @@ class MCTSEngine:
                 child = _MCTSNode(
                     state_spread=node.state_spread, state_S=node.state_S,
                     action=action, parent=node, depth=node.depth + 1,
+                    _node_cfg=self.cfg,
                 )
                 node.children.append(child)
                 node = child
@@ -242,10 +245,10 @@ class MCTSEngine:
 
         iterations = self._get_adaptive_iterations(vol_scale)
         
-        # V8.0: Parallel search with timeout safety
+        # V10.0: Parallel search with configurable timeout safety
         if self.cfg.parallel_workers > 1:
             worker_iterations = max(100, iterations // self.cfg.parallel_workers)
-            worker_timeout = 30.0  # seconds per worker
+            worker_timeout = self.cfg.parallel_worker_timeout
 
             with ThreadPoolExecutor(max_workers=self.cfg.parallel_workers) as executor:
                 futures = []

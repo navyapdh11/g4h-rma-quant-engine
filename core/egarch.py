@@ -104,29 +104,36 @@ class EGARCHVolatilityModel:
                 p=self.cfg.p, o=self.cfg.o, q=self.cfg.q,
                 dist=self.cfg.dist, rescale=False,
             )
-            res = model.fit(disp="off", show_warning=False, tol=1e-4)
-            
+            res = model.fit(disp="off", show_warning=False, tol=self.cfg.optimizer_tol)
+
             for pname in res.params.index:
                 params_dict[pname] = float(res.params[pname])
-            
+
             gamma = params_dict.get("gamma[1]", None)
             cond_vol_raw = res.conditional_volatility
             cond_vol = float(cond_vol_raw[-1] if isinstance(cond_vol_raw, np.ndarray) else cond_vol_raw.iloc[-1])
-            annual_vol = cond_vol / 100.0 * np.sqrt(252)
+            annual_vol = cond_vol / 100.0 * np.sqrt(self.cfg.trading_days)
 
-            fc = res.forecast(horizon=1)
-            fc_var_raw = fc.variance
-            fc_var = float(fc_var_raw.iloc[-1, 0] if hasattr(fc_var_raw, 'iloc') else fc_var_raw[-1, 0])
-            forecast_vol = np.sqrt(fc_var) / 100.0 * np.sqrt(252)
+            # V10.0: Separate try block for forecast so we keep valid fit results even if forecast fails
+            try:
+                fc = res.forecast(horizon=1)
+                fc_var_raw = fc.variance
+                fc_var = float(fc_var_raw.iloc[-1, 0] if hasattr(fc_var_raw, 'iloc') else fc_var_raw[-1, 0])
+                forecast_vol = np.sqrt(fc_var) / 100.0 * np.sqrt(self.cfg.trading_days)
+            except Exception as e:
+                logger.warning(f"EGARCH forecast failed: {e}")
+                forecast_vol = annual_vol  # Use current vol as forecast
+
             fit_success = True
-            
+
             if cache_key:
                 self._failure_count[cache_key] = 0
-                
+
         except Exception as e:
             logger.warning(f"EGARCH fit failed: {e}")
             daily_vol = self._compute_ewma_vol(log_ret)
-            annual_vol = min(daily_vol * np.sqrt(252), 1.99)  # Cap at 199%
+            # V10.0: Use configurable trading days
+            annual_vol = min(daily_vol * np.sqrt(self.cfg.trading_days), 1.99)  # Cap at 199%
             forecast_vol = annual_vol
             gamma = None
             params_dict = {"method": "EWMA_fallback"}

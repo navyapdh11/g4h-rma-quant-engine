@@ -1,6 +1,11 @@
 """
-Risk Manager — Portfolio-level safety net V6.0
+Risk Manager — Portfolio-level safety net V10.0
 ===============================================
+V10.0 Fixes:
+  - Drawdown circuit breaker now resets daily (was permanent)
+  - VaR now uses configurable confidence level (was hardcoded 5th percentile)
+  - Position flips (LONG→SHORT) now allowed with risk checks
+  - Added drawdown reset tracking with configurable window
 V6.0 Features:
   - Position-level tracking with PnL monitoring
   - Stop-loss and take-profit enforcement
@@ -9,7 +14,7 @@ V6.0 Features:
   - Circuit breakers for extreme conditions
 """
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from models import ActionType, VolatilityRegime, TradeSignal
@@ -48,39 +53,51 @@ class RiskManager:
         self._circuit_breaker_open: bool = False
         self._max_drawdown: float = 0.0
         self._peak_pnl: float = 0.0
+        # V10.0: Track drawdown reset date so it resets daily
+        self._drawdown_reset_date: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def approve(self, signal: TradeSignal) -> Tuple[bool, str]:
         if self._circuit_breaker_open:
             return False, "CIRCUIT_BREAKER_OPEN"
-        
+
         if self.cfg.crisis_halt and signal.egarch.regime == VolatilityRegime.CRISIS:
             return False, "CRISIS_REGIME_HALT"
-        
+
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         count = self._daily_trades.get(today, 0)
         if count >= self.cfg.max_daily_trades:
             return False, f"DAILY_LIMIT ({count}/{self.cfg.max_daily_trades})"
-        
+
+        # V10.0: Allow position flips (LONG→SHORT or SHORT→LONG) with risk checks
         if signal.pair in self._active_positions:
             existing = self._active_positions[signal.pair]
-            # Prevent ANY new position on same pair (even opposite direction)
-            # unless it's a HOLD signal (which closes the position)
-            return False, f"DUPLICATE_POSITION ({signal.pair})"
-        
+            is_opposite = (
+                (signal.action == ActionType.LONG_SPREAD and existing.action == ActionType.SHORT_SPREAD) or
+                (signal.action == ActionType.SHORT_SPREAD and existing.action == ActionType.LONG_SPREAD) or
+                (signal.action == ActionType.LONG_OPTIONS_SPREAD and existing.action == ActionType.SHORT_OPTIONS_SPREAD) or
+                (signal.action == ActionType.SHORT_OPTIONS_SPREAD and existing.action == ActionType.LONG_OPTIONS_SPREAD)
+            )
+            if not is_opposite:
+                return False, f"DUPLICATE_POSITION ({signal.pair})"
+            # For flips: close existing first, then open new
+            self._record_pnl(existing.current_pnl)
+            del self._active_positions[signal.pair]
+            logger.info(f"Position flip approved for {signal.pair}: {existing.action.value} → {signal.action.value}")
+
         if signal.confidence < self.cfg.min_confidence_threshold:
             return False, f"LOW_CONFIDENCE ({signal.confidence:.2f} < {self.cfg.min_confidence_threshold:.2f})"
-        
+
         if self._max_drawdown >= self.cfg.max_drawdown_halt:
             return False, f"MAX_DRAWDOWN ({self._max_drawdown:.1%})"
-        
+
         return True, "APPROVED"
 
-    def record_trade(self, pair: str, action: ActionType, 
+    def record_trade(self, pair: str, action: ActionType,
                      entry_z: float = 0.0, entry_spread: float = 0.0,
                      quantity: float = 1.0):
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self._daily_trades[today] = self._daily_trades.get(today, 0) + 1
-        
+
         if action == ActionType.HOLD:
             if pair in self._active_positions:
                 pos = self._active_positions[pair]
@@ -100,21 +117,27 @@ class RiskManager:
         self._pnl_history.append(pnl)
         if len(self._pnl_history) > 252:
             self._pnl_history.pop(0)
-        
+
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self._daily_pnl[today] = self._daily_pnl.get(today, 0) + pnl
-        
+
+        # V10.0: Reset drawdown tracking daily
+        if today != self._drawdown_reset_date:
+            self._max_drawdown = 0.0
+            self._peak_pnl = 0.0
+            self._drawdown_reset_date = today
+
         cumulative = sum(self._pnl_history)
         if cumulative > self._peak_pnl:
             self._peak_pnl = cumulative
-        # V8.0: Fixed drawdown — when peak is 0 or negative, drawdown is 0
+        # V10.0: Fixed drawdown — when peak is 0 or negative, drawdown is 0
         if self._peak_pnl > 0:
-            drawdown = (self._peak_pnl - cumulative) / max(self._peak_pnl, 1.0)  # Prevent div by zero
+            drawdown = (self._peak_pnl - cumulative) / max(self._peak_pnl, 1.0)
         else:
             drawdown = 0.0
         if drawdown > self._max_drawdown:
             self._max_drawdown = drawdown
-        
+
         if self._daily_pnl.get(today, 0) <= -self.cfg.max_daily_loss:
             self._circuit_breaker_open = True
             logger.warning("Circuit breaker triggered: daily loss limit")
@@ -146,7 +169,10 @@ class RiskManager:
     def get_var_95(self) -> Optional[float]:
         if len(self._pnl_history) < 30:
             return None
-        return float(np.percentile(self._pnl_history, 5))
+        # V10.0: Use configurable confidence level from config (was hardcoded 5th percentile)
+        confidence = self.cfg.var_confidence  # Default 0.95
+        percentile = 100 * (1 - confidence)
+        return float(np.percentile(self._pnl_history, percentile))
 
     def get_expected_shortfall(self) -> Optional[float]:
         if len(self._pnl_history) < 30:

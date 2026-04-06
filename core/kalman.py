@@ -106,29 +106,49 @@ class MultivariateKalmanFilter:
             logger.warning("Eigenvalue computation failed — P matrix may be ill-conditioned")
 
         # Cap eigenvalues (eigvals is always defined now)
-        if np.max(eigvals) > self.cfg.max_eigenvalue:
-            logger.warning("Kalman divergence detected — resetting covariance")
-            self.P = np.eye(2) * self.cfg.initial_covariance
-            self.x = np.array([[1.0], [0.0]])  # Reset state to beta=1, alpha=0
-            condition_number = 1.0
-        
+        # V10.0: Compute eigenvalues every N steps instead of every step (performance optimization)
+        compute_eigen = (self._step % self.cfg.eigenvalue_check_interval == 0)
+        if compute_eigen:
+            try:
+                eigvals = np.linalg.eigvalsh(self.P)
+                condition_number = max(eigvals) / max(min(eigvals), self.cfg.eigenvalue_floor)
+            except np.linalg.LinAlgError:
+                condition_number = float('inf')
+                logger.warning("Eigenvalue computation failed — P matrix may be ill-conditioned")
+                eigvals = np.array([1.0, 1.0])
+
+            if np.max(eigvals) > self.cfg.max_eigenvalue:
+                logger.warning("Kalman divergence detected — resetting covariance")
+                self.P = np.eye(2) * self.cfg.initial_covariance
+                self.x = np.array([[1.0], [0.0]])  # Reset state to beta=1, alpha=0
+                condition_number = 1.0
+        else:
+            # Use cached eigenvalues from last computation
+            eigvals = getattr(self, '_last_eigvals', np.array([1.0, 1.0]))
+            condition_number = getattr(self, '_last_condition', 1.0)
+
         spread = float(y.flatten()[0])
         self._last_S = S
         self._last_spread = spread
         pure_z = spread / np.sqrt(S) if S > 0 else 0.0
-        
+
+        # V10.0: Cache eigenvalue results for next step
+        if compute_eigen:
+            self._last_eigvals = eigvals
+            self._last_condition = condition_number
+
         converged = self._step > self.WARMUP_STEPS
         z_safe = pure_z if converged else 0.0
-        
+
         # Track convergence
         self._convergence_history.append(abs(pure_z))
         if len(self._convergence_history) > 100:
             self._convergence_history.pop(0)
-        
+
         is_divergent = False
-        if len(self._convergence_history) >= 50:
-            rolling_var = np.var(self._convergence_history[-50:])
-            if rolling_var > 50.0:
+        if len(self._convergence_history) >= self.cfg.divergence_history:
+            rolling_var = np.var(self._convergence_history[-self.cfg.divergence_history:])
+            if rolling_var > self.cfg.divergence_threshold:
                 is_divergent = True
                 logger.debug(f"Kalman divergence: rolling_var={rolling_var:.2f}")
         

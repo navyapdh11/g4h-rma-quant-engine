@@ -64,7 +64,7 @@
                         </svg>
                     </div>
                     <div>
-                        <h1 class="text-xl font-bold">G4H-RMA Quant Engine <span class="text-purple-400">V8.0</span></h1>
+                        <h1 class="text-xl font-bold">G4H-RMA Quant Engine <span class="text-purple-400" id="engine-version">V10.0</span></h1>
                         <p class="text-xs text-gray-400">Multi-Agent Trading System</p>
                     </div>
                 </div>
@@ -1432,7 +1432,16 @@
             try {
                 const res = await fetch('/health');
                 const data = await res.json();
-                
+
+                // V10.0: Update version from API
+                if (data.version) {
+                    const verEl = document.getElementById('engine-version');
+                    if (verEl) {
+                        const shortVer = data.version.split('-')[0];
+                        verEl.textContent = 'V' + shortVer;
+                    }
+                }
+
                 document.getElementById('kalman-status').textContent = data.modules.kalman ? '✓' : '✗';
                 document.getElementById('kalman-status').className = data.modules.kalman ? 'text-2xl font-bold text-success' : 'text-2xl font-bold text-danger';
                 
