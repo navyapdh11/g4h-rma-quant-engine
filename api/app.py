@@ -26,7 +26,7 @@ import time
 import uuid
 import logging
 import re
-from typing import List
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -316,38 +316,53 @@ async def health():
 
 
 @app.get("/api/v1/sentiment/{symbol}")
-async def get_sentiment(symbol: str):
+async def get_sentiment(symbol: str, use_real_news: bool = False):
     """Get sentiment analysis for a single symbol."""
     try:
         from core.sentiment import SentimentAnalyzer
-        analyzer = SentimentAnalyzer()
-        result = analyzer.analyze_symbol(symbol)
-        return {
-            "symbol": result.symbol,
-            "composite_score": result.composite_score,
-            "label": result.label,
-            "confidence": result.confidence,
-            "news_score": result.news_score,
-            "social_score": result.social_score,
-            "market_score": result.market_score,
-            "factors": result.factors,
-            "timestamp": result.timestamp,
-        }
+        from core.semantic_cache import get_semantic_cache
+
+        cache = get_semantic_cache()
+        cache_key = f"sentiment:{symbol}:real={use_real_news}"
+
+        async def _do_sentiment():
+            analyzer = SentimentAnalyzer(use_real_news=use_real_news)
+            result = analyzer.analyze_symbol(symbol, use_real_news=use_real_news)
+            return {
+                "symbol": result.symbol,
+                "composite_score": result.composite_score,
+                "label": result.label,
+                "confidence": result.confidence,
+                "news_score": result.news_score,
+                "social_score": result.social_score,
+                "market_score": result.market_score,
+                "factors": result.factors,
+                "timestamp": result.timestamp,
+                "real_news": use_real_news and analyzer._news_fetcher is not None,
+            }
+
+        return await cache.get_or_compute(
+            cache_key,
+            _do_sentiment,
+            ttl=1800,  # 30 min TTL for sentiment (news changes slowly)
+            text_for_embedding=f"Sentiment analysis for {symbol} with {'real news' if use_real_news else 'simulated'}",
+        )
     except Exception as e:
         return {"error": str(e), "symbol": symbol}
 
 
 @app.get("/api/v1/sentiment")
-async def get_sentiment_batch(symbols: str = ""):
+async def get_sentiment_batch(symbols: str = "", use_real_news: bool = False):
     """Get sentiment for multiple symbols (comma-separated)."""
     if not symbols:
         return {"error": "No symbols provided", "example": "?symbols=AAPL,MSFT,NVDA"}
     try:
         from core.sentiment import SentimentAnalyzer
-        analyzer = SentimentAnalyzer()
-        results = analyzer.analyze_batch([s.strip() for s in symbols.split(",")])
+        analyzer = SentimentAnalyzer(use_real_news=use_real_news)
+        results = analyzer.analyze_batch([s.strip() for s in symbols.split(",")], use_real_news=use_real_news)
         return {
             "count": len(results),
+            "real_news_enabled": use_real_news and analyzer._news_fetcher is not None,
             "results": [
                 {
                     "symbol": r.symbol, "composite_score": r.composite_score,
@@ -407,9 +422,28 @@ async def scan_single(pair: str, iterations: int = Query(800, ge=100, le=5000)):
     # Validate pair format
     if not re.match(r"^[A-Z0-9\-\./]+_[A-Z0-9\-\./]+$", pair):
         raise HTTPException(400, "Invalid pair format. Use SYMBOL1_SYMBOL2")
-    
+
     base, quote = pair.split("_", 1)
-    return await _analyze_pair(base, quote, iterations)
+
+    # V10.1: Semantic cache for expensive scan operations
+    from core.semantic_cache import get_semantic_cache
+    cache = get_semantic_cache()
+    cache_key = f"scan:{base}/{quote}:iter{iterations}"
+
+    async def _do_scan():
+        return await _analyze_pair(base, quote, iterations)
+
+    try:
+        result = await cache.get_or_compute(
+            cache_key,
+            _do_scan,
+            ttl=300,  # 5 min TTL for scan results
+            text_for_embedding=f"Scan {base}/{quote} with Kalman EGARCH MCTS analysis at {iterations} iterations",
+        )
+        return result
+    except Exception:
+        # Fallback if cache fails
+        return await _analyze_pair(base, quote, iterations)
 
 
 @app.post("/api/v1/execute", response_model=ExecutionResponse)
@@ -723,13 +757,32 @@ async def run_backtest_api(
     end: str = None,
     initial_capital: float = 100000.0,
     z_entry: float = 2.0,
+    z_exit: float = 0.5,
+    stop_loss_z: float = 4.0,
+    min_confidence: float = 0.3,
+    capital_pct: float = 0.05,
 ):
-    """Run backtest via API."""
+    """Run backtest via API.
+
+    Args:
+        base: Base asset symbol (e.g., AAPL, NVDA)
+        quote: Quote asset symbol (e.g., MSFT, AMD)
+        start: Start date (YYYY-MM-DD)
+        end: End date (YYYY-MM-DD)
+        initial_capital: Starting capital
+        z_entry: Z-score threshold to enter (lower = more trades)
+        z_exit: Z-score threshold to exit (higher = hold longer)
+        stop_loss_z: Z-score stop-loss level
+        min_confidence: Minimum signal confidence to execute (0.0-1.0)
+        capital_pct: Capital allocation per trade (0.01-0.50)
+    """
     from backtest import run_backtest
 
     req = BacktestRequest(
         base=base, quote=quote, start=start, end=end,
         initial_capital=initial_capital, z_entry=z_entry,
+        z_exit=z_exit, stop_loss_z=stop_loss_z,
+        min_confidence=min_confidence, capital_pct_per_trade=capital_pct,
     )
 
     try:
@@ -1229,3 +1282,102 @@ async def apply_custom_config(req: CustomConfigRequest):
         "changes": changes,
         "message": f"Validated {len(changes)} changes. Note: frozen dataclass config requires restart to fully apply. Values will take effect on next engine restart.",
     }
+
+
+# ─── DFS Menu Navigation API ─────────────────────────────────────────────
+
+@app.get("/api/v1/menu/tree")
+async def get_menu_tree(role: str = Query("*", description="User role for permission filtering")):
+    """Get the full DFS navigation tree filtered by role."""
+    from lib.menu_graph import get_menu_navigator
+    navigator = get_menu_navigator()
+    return {"tree": navigator.get_navigation_tree(role)}
+
+
+@app.get("/api/v1/menu/nodes")
+async def get_menu_nodes(role: str = Query("*", description="User role for permission filtering")):
+    """Get all accessible menu nodes, sorted by order."""
+    from lib.menu_graph import get_menu_navigator
+    navigator = get_menu_navigator()
+    nodes = navigator.get_accessible_nodes(role)
+    return {
+        "nodes": [
+            {
+                "id": n.id,
+                "label": n.label,
+                "tabId": n.tab_id,
+                "icon": n.icon,
+                "description": n.description,
+                "loadFn": n.load_fn,
+                "order": n.order,
+                "hasChildren": bool(n.children),
+            }
+            for n in nodes
+            if n.id != "root"
+        ]
+    }
+
+
+@app.get("/api/v1/menu/search")
+async def search_menu(
+    q: str = Query(..., min_length=1, description="Search query"),
+    role: str = Query("*", description="User role"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Fuzzy search across all accessible menu nodes."""
+    from lib.menu_graph import get_menu_navigator
+    navigator = get_menu_navigator()
+    results = navigator.fuzzy_search(q, role=role, limit=limit)
+    return {
+        "query": q,
+        "results": [
+            {
+                "id": r["node"].id,
+                "label": r["node"].label,
+                "tabId": r["node"].tab_id,
+                "icon": r["node"].icon,
+                "description": r["node"].description,
+                "loadFn": r["node"].load_fn,
+                "score": r["score"],
+                "breadcrumbs": [
+                    {"id": b.id, "label": b.label, "icon": b.icon}
+                    for b in r["breadcrumbs"]
+                ],
+            }
+            for r in results
+        ],
+        "total": len(results),
+    }
+
+
+@app.get("/api/v1/menu/breadcrumbs/{node_id}")
+async def get_breadcrumbs(node_id: str, role: str = Query("*")):
+    """Get breadcrumb path from root to a specific node."""
+    from lib.menu_graph import get_menu_navigator
+    navigator = get_menu_navigator()
+    crumbs = navigator.get_breadcrumbs(node_id, role)
+    return {
+        "nodeId": node_id,
+        "breadcrumbs": [
+            {"id": b.id, "label": b.label, "tabId": b.tab_id, "icon": b.icon}
+            for b in crumbs
+        ],
+    }
+
+
+# ─── Semantic Cache Stats Endpoint ────────────────────────────────────────
+
+@app.get("/api/v1/cache/stats")
+async def get_cache_stats():
+    """Get semantic cache statistics."""
+    from core.semantic_cache import get_cache_stats as _get_stats
+    stats = _get_stats()
+    return stats
+
+
+@app.post("/api/v1/cache/clear")
+async def clear_semantic_cache():
+    """Clear the semantic cache."""
+    from core.semantic_cache import clear_cache_async
+    count = await clear_cache_async()
+    return {"status": "cleared", "message": f"Semantic cache cleared ({count} items removed)"}
