@@ -63,15 +63,17 @@ class ScanRequest(BaseModel):
 
 class BacktestRequest(BaseModel):
     """Validated backtest request."""
-    base: str = Field(..., min_length=1, max_length=10)
-    quote: str = Field(..., min_length=1, max_length=10)
+    base: str = Field(..., min_length=1, max_length=15)
+    quote: str = Field(..., min_length=1, max_length=15)
     start: str = Field("2020-01-01", pattern=r"^\d{4}-\d{2}-\d{2}$")
     end: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     initial_capital: float = Field(100000.0, gt=0, le=10000000)
     z_entry: float = Field(2.0, gt=0, le=5.0)
-    z_exit: float = Field(0.0, ge=-1.0, le=1.0)
+    z_exit: float = Field(0.5, ge=-1.0, le=2.0)
     mcts_enabled: bool = True
-    stop_loss_z: Optional[float] = Field(None, gt=3.0, le=10.0)  # V6.0
+    stop_loss_z: Optional[float] = Field(4.0, gt=3.0, le=10.0)  # V6.0
+    min_confidence: float = Field(0.3, ge=0.0, le=1.0)  # V10.1: Minimum signal confidence
+    capital_pct_per_trade: float = Field(0.05, gt=0, le=0.5)  # V10.1: Capital allocation per trade
 
 
 class ExecuteRequest(BaseModel):

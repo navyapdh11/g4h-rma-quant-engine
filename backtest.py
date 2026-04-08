@@ -1,11 +1,16 @@
 """
-Walk-forward backtest engine V10.0
+Walk-forward backtest engine V10.1
 ==================================
-V10.0 Enhancements:
-  - Proper dollar-based PnL with notional sizing
-  - Commission and slippage modeling
-  - Benchmark comparison (buy-and-hold baseline)
-  - Walk-forward optimization support
+V10.1 Fixes & Improvements:
+  - Real EGARCH volatility estimation (was hardcoded 0.20)
+  - Real MCTS signal integration (was always HOLD)
+  - Confidence threshold filtering (was executing weak signals)
+  - Configurable capital allocation per trade (was fixed 10%)
+  - Realistic commission model (was overcharging on large share counts)
+  - Stop-loss with z-score threshold
+  - Better exit logic (z_exit default 0.5 instead of 0.0)
+  - Benchmark: buy-and-hold comparison
+  - Walk-forward compatible design
   - V7.0: Reproducible MCTS seeding for deterministic backtests
 """
 from __future__ import annotations
@@ -14,6 +19,7 @@ import pandas as pd
 from core.kalman import MultivariateKalmanFilter
 from core.egarch import EGARCHVolatilityModel
 from core.mcts import MCTSEngine
+from core.risk import RiskManager
 from models import (
     ActionType, BacktestMetrics, BacktestRequest, BacktestResponse,
     TradeSignal, KalmanState, EGARCHResult, MCTSResult,
@@ -24,19 +30,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# V10.0: Default commission and slippage constants
-DEFAULT_COMMISSION_PER_SHARE = 0.005  # $0.005 per share
-DEFAULT_SLIPPAGE_BPS = 5  # 5 basis points = 0.05%
+# V10.1: Realistic commission and slippage
+# Alpaca: $0 commission, but we model exchange fees + slippage
+COMMISSION_BPS = 0.0  # Alpaca is $0 commission
+SLIPPAGE_BPS = 3  # 3 basis points = 0.03% (realistic for liquid stocks)
 
 
 def run_backtest(req: BacktestRequest) -> BacktestResponse:
     """Run pairs trading backtest with enhanced metrics."""
-    # V10.0: Use unified fetcher instead of direct yfinance
     from data.unified_fetcher import UnifiedDataFetcher
     fetcher = UnifiedDataFetcher()
 
     warnings = []
-    period = "2y"  # Default period for unified fetcher
+    period = "2y"
 
     try:
         df = fetcher.get_yfinance(req.base, req.quote, period)
@@ -65,10 +71,14 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
 
     pa, pb = df[req.base], df[req.quote]
 
-    # Run Kalman filter
+    # ── Initialize models ──────────────────────────────────────────────
     kf = MultivariateKalmanFilter(settings.kalman)
-    z_scores, spreads, betas = [], [], []
+    egarch_model = EGARCHVolatilityModel(settings.egarch)
+    mcts_engine = MCTSEngine(settings.mcts)
+    risk_mgr = RiskManager(settings.risk)
 
+    # ── Kalman filter pass ─────────────────────────────────────────────
+    z_scores, spreads, betas = [], [], []
     for i in range(len(pa)):
         snap = kf.step(float(pa.iloc[i]), float(pb.iloc[i]))
         z_scores.append(snap.pure_z_score)
@@ -78,144 +88,213 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
     z_series = pd.Series(z_scores, index=pa.index)
     spread_series = pd.Series(spreads, index=pa.index)
 
-    # V10.0: Commission and slippage parameters
-    commission_per_share = getattr(req, 'commission_per_share', DEFAULT_COMMISSION_PER_SHARE)
-    slippage_bps = getattr(req, 'slippage_bps', DEFAULT_SLIPPAGE_BPS)
-    slippage_pct = slippage_bps / 10000.0
+    # ── EGARCH volatility estimation ───────────────────────────────────
+    # V10.1: Run real EGARCH on price series instead of hardcoding 0.20
+    egarch_result = egarch_model.analyze(pa, cache_key=f"bt_{req.base}")
+    vol_scale = egarch_result.forecast_vol  # Use forecast vol for MCTS
 
-    # Backtest loop
+    # ── Backtest configuration ─────────────────────────────────────────
+    z_entry = getattr(req, 'z_entry', 2.0)
+    z_exit = getattr(req, 'z_exit', 0.5)
+    stop_loss_z = getattr(req, 'stop_loss_z', 4.0)
+    min_confidence = getattr(req, 'min_confidence', 0.3)
+    capital_pct = getattr(req, 'capital_pct_per_trade', 0.05)
+    slippage_pct = SLIPPAGE_BPS / 10000.0
+
+    # ── Backtest loop ──────────────────────────────────────────────────
     position = 0
     entry_spread = entry_price_a = entry_price_b = 0.0
     entry_shares_a = entry_shares_b = 0
     trade_pnls: list = []
-    trade_pnls_dollar: list = []  # V10.0: Track dollar PnL
     wins = 0
     losses = 0
+    gross_profit = 0.0
+    gross_loss = 0.0
     signals_list: list = []
     consecutive_wins = 0
     consecutive_losses = 0
     max_consecutive_wins = 0
     max_consecutive_losses = 0
     capital = req.initial_capital
-    equity_curve: list = [capital]  # V10.0: Start with initial capital
+    equity_curve: list = [capital]
+    trades_executed = 0
+    trades_filtered = 0  # V10.1: Count trades filtered by confidence
 
-    for i in range(len(z_series)):
+    warmup = max(30, settings.kalman.warmup_steps)
+    max_hold_bars = 20  # V10.1: Force exit after N bars to avoid dead positions
+    entry_bar = 0
+
+    for i in range(warmup, len(z_series)):
         z = z_series.iloc[i]
-        pa_i = pa.iloc[i]
-        pb_i = pb.iloc[i]
+        pa_i = float(pa.iloc[i])
+        pb_i = float(pb.iloc[i])
+        spread_i = spread_series.iloc[i]
+        beta_i = betas[i]
+
+        if pa_i <= 0 or pb_i <= 0:
+            continue
+
+        # ── EGARCH volatility update (every 20 bars) ─────────────────
+        if (i - warmup) % 20 == 0:
+            try:
+                lookback_start = max(0, i - settings.egarch.lookback_days)
+                price_history = pa.iloc[lookback_start:i+1]
+                if len(price_history) >= 60:
+                    egarch_result = egarch_model.analyze(
+                        price_history, cache_key=f"bt_{req.base}_{i}"
+                    )
+                    vol_scale = egarch_result.forecast_vol
+            except Exception:
+                pass  # Keep using previous vol estimate
+
+        # ── MCTS signal ─────────────────────────────────────────────
+        mcts_result = mcts_engine.search(spread_i, 1.0, vol_scale)
 
         if position == 0:
-            # Entry logic
-            if z < -req.z_entry:
-                position = 1  # Long spread
-                entry_spread = spread_series.iloc[i]
-                entry_price_a = pa_i
-                entry_price_b = pb_i
-                # V10.0: Size position based on capital allocation
-                notional = capital * 0.1  # 10% of capital per trade
-                entry_shares_a = max(1, int(notional / pa_i))
-                # Beta-hedge: shares_b = shares_a * beta
-                beta = betas[i] if betas[i] > 0 else 1.0
-                entry_shares_b = max(1, int(entry_shares_a * beta))
+            # ── Entry logic ─────────────────────────────────────────
+            confidence = min(abs(z) / 3.0, 1.0)
 
-            elif z > req.z_entry:
-                position = -1  # Short spread
-                entry_spread = spread_series.iloc[i]
+            # V10.1: Filter by minimum confidence
+            if confidence < min_confidence:
+                trades_filtered += 1
+                equity_curve.append(capital)
+                continue
+
+            # V10.1: Only enter when z is extreme AND MCTS doesn't veto
+            should_enter = abs(z) >= z_entry
+
+            if mcts_result.action == ActionType.LONG_SPREAD and z < 0:
+                should_enter = True
+            elif mcts_result.action == ActionType.SHORT_SPREAD and z > 0:
+                should_enter = True
+            elif mcts_result.action == ActionType.HOLD and abs(z) < z_entry * 1.3:
+                should_enter = False
+
+            if should_enter:
+                if z < 0:
+                    position = 1
+                else:
+                    position = -1
+
+                entry_spread = spread_i
                 entry_price_a = pa_i
                 entry_price_b = pb_i
-                notional = capital * 0.1
+                entry_bar = i
+
+                notional = capital * capital_pct
                 entry_shares_a = max(1, int(notional / pa_i))
-                beta = betas[i] if betas[i] > 0 else 1.0
-                entry_shares_b = max(1, int(entry_shares_a * beta))
+                beta_hedge = max(0.1, beta_i) if beta_i > 0 else 1.0
+                entry_shares_b = max(1, int(entry_shares_a * beta_hedge))
+                trades_executed += 1
 
         else:
-            # Exit logic
-            should_exit = (position == 1 and z > req.z_exit) or \
-                          (position == -1 and z < req.z_exit)
+            # ── Exit logic ──────────────────────────────────────────
+            should_exit = False
+            bars_held = i - entry_bar
 
-            # Stop-loss check
-            if req.stop_loss_z and abs(z) >= req.stop_loss_z:
+            # Mean reversion exit
+            if position == 1 and z > z_exit:
                 should_exit = True
-                logger.debug(f"Stop-loss triggered at z={z:.2f}")
+            elif position == -1 and z < -z_exit:
+                should_exit = True
+
+            # V10.1: Time-based exit — force close after max_hold_bars
+            if bars_held >= max_hold_bars:
+                should_exit = True
+
+            # Stop-loss
+            if stop_loss_z and abs(z) >= stop_loss_z:
+                should_exit = True
+
+            # MCTS exit
+            if mcts_result.expected_value < -0.5 and position == 1:
+                should_exit = True
+            elif mcts_result.expected_value > 0.5 and position == -1:
+                should_exit = True
 
             if should_exit:
-                exit_spread = spread_series.iloc[i]
+                exit_spread = spread_i
                 exit_price_a = pa_i
                 exit_price_b = pb_i
 
-                # V10.0: Calculate dollar PnL with commission and slippage
+                # V10.1: Dollar PnL — clean computation
                 if position == 1:
-                    # Long spread: buy A, sell B (short)
+                    # Long spread: bought A, sold B
                     pnl_a = (exit_price_a - entry_price_a) * entry_shares_a
                     pnl_b = (entry_price_b - exit_price_b) * entry_shares_b
                 else:
-                    # Short spread: sell A (short), buy B
+                    # Short spread: sold A, bought B
                     pnl_a = (entry_price_a - exit_price_a) * entry_shares_a
                     pnl_b = (exit_price_b - entry_price_b) * entry_shares_b
 
                 gross_pnl = pnl_a + pnl_b
 
-                # V10.0: Commission (entry + exit)
-                total_shares = entry_shares_a + entry_shares_b
-                commission = total_shares * commission_per_share * 2  # entry + exit
-
-                # V10.0: Slippage (entry + exit)
-                slippage = (entry_price_a * entry_shares_a + entry_price_b * entry_shares_b +
-                           exit_price_a * entry_shares_a + exit_price_b * entry_shares_b) * slippage_pct
-
+                # Costs
+                total_notional = (entry_price_a * entry_shares_a +
+                                 entry_price_b * entry_shares_b +
+                                 exit_price_a * entry_shares_a +
+                                 exit_price_b * entry_shares_b)
+                commission = total_notional * COMMISSION_BPS / 10000.0
+                slippage = total_notional * slippage_pct
                 net_pnl = gross_pnl - commission - slippage
-                trade_pnls_dollar.append(net_pnl)
 
-                # Unitless return for compatibility
-                notional_ref = abs(entry_spread) if abs(entry_spread) > 1e-8 else abs(entry_price_a)
-                pnl_pct = net_pnl / max(notional_ref * entry_shares_a, 1.0)
+                # Normalized return for Sharpe (per-unit of notional)
+                entry_notional = entry_price_a * entry_shares_a + entry_price_b * entry_shares_b
+                pnl_pct = net_pnl / max(entry_notional, 1.0)
+
                 trade_pnls.append(pnl_pct)
-
-                # Update capital
-                capital += net_pnl
-                equity_curve.append(capital)
 
                 if net_pnl > 0:
                     wins += 1
+                    gross_profit += net_pnl
                     consecutive_wins += 1
                     consecutive_losses = 0
-                    if consecutive_wins > max_consecutive_wins:
-                        max_consecutive_wins = consecutive_wins
+                    max_consecutive_wins = max(max_consecutive_wins, consecutive_wins)
                 else:
                     losses += 1
+                    gross_loss += abs(net_pnl)
                     consecutive_losses += 1
                     consecutive_wins = 0
-                    if consecutive_losses > max_consecutive_losses:
-                        max_consecutive_losses = consecutive_losses
+                    max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
 
+                capital += net_pnl
+                equity_curve.append(capital)
+
+                confidence = min(abs(z) / 3.0, 1.0)
                 signals_list.append(TradeSignal(
                     pair=f"{req.base}/{req.quote}",
                     action=(ActionType.LONG_SPREAD if position == 1
                             else ActionType.SHORT_SPREAD),
-                    confidence=min(abs(z) / 3.0, 1.0),
+                    confidence=confidence,
                     kalman=KalmanState(
-                        beta=betas[i], alpha=0, spread=exit_spread,
+                        beta=beta_i, alpha=0, spread=exit_spread,
                         innovation_variance=1.0, pure_z_score=z, converged=True,
                     ),
                     egarch=EGARCHResult(
-                        annualized_vol=0.2, forecast_vol=0.2,
-                        regime=VolatilityRegime.NORMAL,
+                        annualized_vol=egarch_result.annualized_vol,
+                        forecast_vol=egarch_result.forecast_vol,
+                        leverage_gamma=egarch_result.leverage_gamma,
+                        regime=egarch_result.regime,
+                        params=egarch_result.params,
                     ),
                     mcts=MCTSResult(
-                        action=ActionType.HOLD, expected_value=pnl_pct,
-                        visit_distribution={}, avg_reward_distribution={},
+                        action=mcts_result.action,
+                        expected_value=mcts_result.expected_value,
+                        visit_distribution=mcts_result.visit_distribution,
+                        avg_reward_distribution=mcts_result.avg_reward_distribution,
                     ),
                     source=SignalSource.BACKTEST,
                 ))
                 position = 0
 
-        # V10.0: Track equity even when not in a trade
-        if position == 0 and i > 0 and (i % 10 == 0 or i == len(z_series) - 1):
-            equity_curve.append(capital)
+        equity_curve.append(capital)
 
-    # Handle empty results
+    # ── Handle empty results ───────────────────────────────────────────
     if not trade_pnls:
-        warnings.append("No trades generated - try adjusting z_entry threshold")
+        warnings.append(
+            f"No trades generated. Filtered {trades_filtered} weak signals "
+            f"(min_confidence={min_confidence}). Try lowering z_entry={z_entry} or min_confidence."
+        )
         return BacktestResponse(
             pair=f"{req.base}/{req.quote}",
             metrics=BacktestMetrics(
@@ -226,66 +305,65 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
             warnings=warnings,
         )
 
-    # Calculate metrics
+    # ── Calculate metrics ──────────────────────────────────────────────
     cum_returns = np.cumsum(trade_pnls)
+    total_return = cum_returns[-1]
 
-    # Sharpe ratio
     avg_ret = np.mean(trade_pnls)
     std_ret = np.std(trade_pnls)
-    sharpe = avg_ret / (std_ret + 1e-8) * np.sqrt(252)
+    sharpe = (avg_ret / (std_ret + 1e-8)) * np.sqrt(252)
 
-    # Maximum drawdown from dollar equity curve
+    # Maximum drawdown
     eq_array = np.array(equity_curve)
     peak = np.maximum.accumulate(eq_array)
-    drawdowns = (peak - eq_array) / peak
+    drawdowns = (peak - eq_array) / np.where(peak > 0, peak, 1e-8)
     max_dd = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0
 
-    # Gross profit/loss
-    gross_w = sum(p for p in trade_pnls if p > 0)
-    gross_l = abs(sum(p for p in trade_pnls if p < 0))
-
-    # Sortino ratio (downside deviation)
+    # Sortino ratio
     negative_returns = [p for p in trade_pnls if p < 0]
     downside_std = np.std(negative_returns) if negative_returns else 1e-8
-    sortino = avg_ret / (downside_std + 1e-8) * np.sqrt(252)
+    sortino = (avg_ret / (downside_std + 1e-8)) * np.sqrt(252)
 
     # Calmar ratio
-    total_return_annual = cum_returns[-1] * (252 / max(len(trade_pnls), 1))
-    calmar = total_return_annual / (max_dd + 1e-8) if max_dd > 0 else float('inf')
+    calmar = (total_return / (max_dd + 1e-8)) if max_dd > 0 else float('inf')
 
-    # V10.0: Benchmark comparison (buy-and-hold base asset)
-    bh_return = (pa.iloc[-1] - pa.iloc[0]) / pa.iloc[0]
-    bh_sharpe = (pa.pct_change().mean() / (pa.pct_change().std() + 1e-8)) * np.sqrt(252)
+    # Benchmark: buy-and-hold base asset
+    bh_return = (pa.iloc[-1] - pa.iloc[warmup]) / pa.iloc[warmup]
 
-    # Alpha vs benchmark
-    strategy_total = cum_returns[-1]
-    alpha = strategy_total - bh_return
+    # Profit factor
+    profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
 
-    total_commission = sum(
-        (entry_shares_a + entry_shares_b) * commission_per_share * 2
-        for _ in trade_pnls
-    )
-    total_slippage = sum(
-        trade_pnls_dollar[i] - (trade_pnls[i] * (abs(spread_series.iloc[0]) if abs(spread_series.iloc[0]) > 1e-8 else 1))
-        for i in range(len(trade_pnls))
-    ) if trade_pnls_dollar else 0
+    if warnings:
+        warnings.append(
+            f"Backtest complete: {len(trade_pnls)} trades, "
+            f"{trades_filtered} filtered, "
+            f"EGARCH vol={egarch_result.annualized_vol:.1%}, "
+            f"BH return={bh_return:+.1%}"
+        )
+    else:
+        warnings.append(
+            f"Backtest complete: {len(trade_pnls)} trades, "
+            f"{trades_filtered} filtered, "
+            f"EGARCH vol={egarch_result.annualized_vol:.1%}, "
+            f"BH return={bh_return:+.1%}"
+        )
 
     return BacktestResponse(
         pair=f"{req.base}/{req.quote}",
         metrics=BacktestMetrics(
-            total_return=round(cum_returns[-1], 4),
+            total_return=round(total_return, 4),
             sharpe_ratio=round(sharpe, 2),
             max_drawdown=round(max_dd, 4),
             win_rate=round(wins / len(trade_pnls), 3),
             total_trades=len(trade_pnls),
             avg_trade_pnl=round(float(np.mean(trade_pnls)), 6),
-            profit_factor=round(gross_w / gross_l, 2) if gross_l > 0 else float('inf'),
-            equity_curve=[round(e, 2) for e in equity_curve],
+            profit_factor=round(profit_factor, 2) if gross_loss > 0 else None,
+            equity_curve=[round(e, 2) for e in equity_curve[::max(1, len(equity_curve)//100)]],  # Sample to ~100 points
             sortino_ratio=round(sortino, 2),
             calmar_ratio=round(calmar, 2) if calmar != float('inf') else None,
             max_consecutive_wins=max_consecutive_wins,
             max_consecutive_losses=max_consecutive_losses,
         ),
-        signals=signals_list,
+        signals=signals_list[:200],  # Limit signals in response
         warnings=warnings,
     )

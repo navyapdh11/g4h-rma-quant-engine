@@ -42,33 +42,53 @@ class ScoutAgent(BaseAgent):
         return "Scans markets for trading opportunities using statistical signals"
 
     async def analyze(self, market_data: Dict[str, Any]) -> AgentSignal:
-        """Analyze market and return best opportunity."""
+        """Analyze market and return signals for ALL pairs (not just best)."""
         try:
-            best_pair = None
-            best_signal = SignalStrength.HOLD
-            best_confidence = 0.0
-            best_reasoning = "No strong opportunities detected"
-
+            requested_pair = market_data.get("pair", None)
+            
+            all_opportunities = []
+            
             for pair in self.pairs_to_scan:
                 signal, confidence, reasoning = self._analyze_pair(market_data, pair)
+                all_opportunities.append({
+                    "pair": pair,
+                    "signal": signal,
+                    "confidence": confidence,
+                    "reasoning": reasoning,
+                })
+                
+                # If this is the requested pair, return it immediately
+                if pair == requested_pair:
+                    return AgentSignal(
+                        agent_id=self.agent_id,
+                        agent_role=self.role,
+                        timestamp=datetime.now(timezone.utc),
+                        pair=pair,
+                        signal=signal,
+                        confidence=confidence,
+                        reasoning=reasoning,
+                        metadata={
+                            "pairs_scanned": len(self.pairs_to_scan),
+                            "z_threshold": self.z_threshold,
+                            "all_opportunities": all_opportunities,
+                        }
+                    )
 
-                if confidence > best_confidence:
-                    best_pair = pair
-                    best_signal = signal
-                    best_confidence = confidence
-                    best_reasoning = reasoning
-
+            # If requested pair not in scan list, return best opportunity
+            best = max(all_opportunities, key=lambda x: x["confidence"]) if all_opportunities else None
+            
             return AgentSignal(
                 agent_id=self.agent_id,
                 agent_role=self.role,
                 timestamp=datetime.now(timezone.utc),
-                pair=best_pair or "SPY/QQQ",
-                signal=best_signal,
-                confidence=best_confidence,
-                reasoning=best_reasoning,
+                pair=best["pair"] if best else "SPY/QQQ",
+                signal=best["signal"] if best else SignalStrength.HOLD,
+                confidence=best["confidence"] if best else 0.0,
+                reasoning=best["reasoning"] if best else "No strong opportunities detected",
                 metadata={
                     "pairs_scanned": len(self.pairs_to_scan),
                     "z_threshold": self.z_threshold,
+                    "all_opportunities": all_opportunities,
                 }
             )
         except Exception as e:
@@ -220,28 +240,48 @@ class TraderAgent(BaseAgent):
         return "Optimizes trade execution timing and position sizing"
 
     async def analyze(self, market_data: Dict[str, Any]) -> AgentSignal:
-        """Determine optimal execution strategy."""
+        """Determine optimal execution strategy using raw market data."""
         try:
             pair = market_data.get("pair", "SPY/QQQ")
-            current_signal = market_data.get("signal", SignalStrength.HOLD)
-            base_confidence = market_data.get("confidence", 0.5)
             egarch_vol = market_data.get("egarch", {}).get("annualized_vol", 0.2)
+            kalman_z = market_data.get("kalman", {}).get("z_score", 0)
+            mcts_ev = market_data.get("mcts", {}).get("expected_value", 0)
 
+            # Compute our own signal from raw data (not from other agents' consensus)
+            z_signal = SignalStrength.BUY if kalman_z < -1.5 else (SignalStrength.SELL if kalman_z > 1.5 else SignalStrength.HOLD)
+            ev_signal = SignalStrength.BUY if mcts_ev > 0.05 else (SignalStrength.SELL if mcts_ev < -0.05 else SignalStrength.HOLD)
+            
+            # Combine signals
+            if z_signal == ev_signal and z_signal != SignalStrength.HOLD:
+                current_signal = z_signal
+                base_confidence = min((abs(kalman_z) / 3.0 + abs(mcts_ev) * 10) / 2, 1.0)
+            elif z_signal != SignalStrength.HOLD:
+                current_signal = z_signal
+                base_confidence = abs(kalman_z) / 3.0 * 0.7
+            elif ev_signal != SignalStrength.HOLD:
+                current_signal = ev_signal
+                base_confidence = abs(mcts_ev) * 10 * 0.7
+            else:
+                current_signal = SignalStrength.HOLD
+                base_confidence = 0.3
+
+            # Volatility adjustment for execution timing
             if self.vol_adjustment:
                 vol_factor = 0.2 / max(egarch_vol, 0.1)
                 vol_factor = min(max(vol_factor, 0.5), 1.5)
             else:
                 vol_factor = 1.0
 
+            # Determine execution timing based on signal strength and volatility
             if current_signal == SignalStrength.STRONG_BUY:
                 execution_signal = SignalStrength.BUY
                 timing = "IMMEDIATE"
             elif current_signal == SignalStrength.BUY:
                 execution_signal = SignalStrength.BUY
-                timing = "LIMIT"
+                timing = "LIMIT" if vol_factor > 1.2 else "IMMEDIATE"
             elif current_signal in [SignalStrength.STRONG_SELL, SignalStrength.SELL]:
                 execution_signal = current_signal
-                timing = "IMMEDIATE" if current_signal == SignalStrength.STRONG_SELL else "LIMIT"
+                timing = "IMMEDIATE" if current_signal == SignalStrength.STRONG_SELL or vol_factor < 0.8 else "LIMIT"
             else:
                 execution_signal = SignalStrength.HOLD
                 timing = "WAIT"
@@ -252,7 +292,8 @@ class TraderAgent(BaseAgent):
 
             reasoning = (
                 f"Trader: {execution_signal.value} {recommended_qty} units, "
-                f"Timing: {timing}, Vol factor: {vol_factor:.2f}"
+                f"Timing: {timing}, Vol factor: {vol_factor:.2f}, "
+                f"Z={kalman_z:.2f}, EV={mcts_ev:.3f}"
             )
 
             return AgentSignal(
@@ -268,6 +309,8 @@ class TraderAgent(BaseAgent):
                     "timing": timing,
                     "vol_factor": vol_factor,
                     "estimated_notional": recommended_qty * base_price,
+                    "derived_from_z": kalman_z,
+                    "derived_from_ev": mcts_ev,
                 }
             )
         except Exception as e:
