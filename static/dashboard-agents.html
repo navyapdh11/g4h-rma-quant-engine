@@ -50,6 +50,31 @@
         .sentiment-bearish { color: #ef4444; }
         .sentiment-neutral { color: #9ca3af; }
         .options-badge { background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; font-size: 0.6rem; padding: 1px 4px; border-radius: 3px; margin-left: 4px; }
+        /* DFS Navigator overlay */
+        .dfs-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; display: none; }
+        .dfs-overlay.active { display: block; }
+        .dfs-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(600px, 90vw); max-height: 80vh; background: linear-gradient(135deg, #16213e, #0f0f1a); border: 1px solid #16213e; border-radius: 16px; z-index: 9999; display: none; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }
+        .dfs-panel.active { display: block; animation: dfsSlideIn 0.2s ease-out; }
+        @keyframes dfsSlideIn { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+        .dfs-panel input { width: 100%; padding: 16px 20px; background: transparent; border: none; border-bottom: 1px solid #16213e; color: #e0e0e0; font-size: 16px; outline: none; }
+        .dfs-panel input::placeholder { color: #666; }
+        .dfs-results { max-height: 60vh; overflow-y: auto; }
+        .dfs-result-item { padding: 12px 20px; cursor: pointer; transition: background 0.1s; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(22,33,62,0.3); }
+        .dfs-result-item:hover, .dfs-result-item.focused { background: rgba(139,92,246,0.15); }
+        .dfs-result-item .icon { font-size: 20px; }
+        .dfs-result-item .label { font-weight: 600; }
+        .dfs-result-item .desc { font-size: 12px; color: #888; }
+        .dfs-result-item .score { margin-left: auto; font-size: 11px; color: #8b5cf6; background: rgba(139,92,246,0.2); padding: 2px 8px; border-radius: 8px; }
+        /* GoT visualization */
+        .got-graph { background: rgba(15,15,26,0.8); border-radius: 12px; border: 1px solid #16213e; padding: 16px; }
+        .got-node { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 11px; margin: 3px; white-space: nowrap; }
+        .got-node.observation { background: rgba(59,130,246,0.2); border: 1px solid rgba(59,130,246,0.4); }
+        .got-node.hypothesis { background: rgba(245,158,11,0.2); border: 1px solid rgba(245,158,11,0.4); }
+        .got-node.decision { background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); }
+        .got-node.summary { background: rgba(139,92,246,0.2); border: 1px solid rgba(139,92,246,0.4); }
+        /* Cache stats */
+        .cache-stat { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #888; }
+        .cache-stat .hit-rate { color: #10b981; }
     </style>
 </head>
 <body class="bg-primary text-gray-100 min-h-screen">
@@ -76,6 +101,11 @@
                     <button onclick="refreshAll()" class="p-2 hover:bg-accent rounded-lg transition" title="Refresh">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                    <button onclick="openDFSNav()" class="p-2 hover:bg-accent rounded-lg transition" title="Navigator (Ctrl+K)">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                         </svg>
                     </button>
                 </div>
@@ -211,10 +241,19 @@
         <!-- Agents Tab -->
         <div id="tab-agents-content" class="tab-content hidden">
             <h2 class="text-lg font-semibold mb-4">🤖 Trading Agents</h2>
+
+            <!-- Cache Stats Bar -->
+            <div id="cache-stats" class="flex gap-4 mb-4 p-2 bg-secondary rounded-lg text-xs"></div>
+
             <div id="agents-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <!-- Agent cards will be inserted here -->
             </div>
-            
+
+            <!-- GoT Reasoning Graph -->
+            <section class="mt-6 got-graph" id="got-graph-container">
+                <p class="text-gray-500 text-sm">Loading GoT state...</p>
+            </section>
+
             <!-- Agent Metrics -->
             <section class="mt-6 card-gradient rounded-xl p-6 border border-accent">
                 <h3 class="text-lg font-semibold mb-4">Agent Performance Metrics</h3>
@@ -1165,6 +1204,13 @@
         </div>
     </main>
 
+    <!-- DFS Navigator Overlay -->
+    <div id="dfs-overlay" class="dfs-overlay" onclick="closeDFSNav()"></div>
+    <div id="dfs-panel" class="dfs-panel">
+        <input type="text" id="dfs-search" placeholder="Search dashboard pages... (Ctrl+K)" oninput="dfsSearch(this.value)" onkeydown="dfsKeyNav(event)">
+        <div id="dfs-results" class="dfs-results"></div>
+    </div>
+
     <!-- Footer -->
     <footer class="border-t border-accent mt-8 py-4">
         <div class="container mx-auto px-4 text-center text-sm text-gray-500">
@@ -1178,8 +1224,214 @@
         let currentTab = 'dashboard';
         let agentsState = {};
         let decisions = [];
-        
-        // Tab switching
+        let dfsFocusedIndex = -1;
+        let dfsResultsData = [];
+
+        // ── DFS Navigator ─────────────────────────────────────────────
+        function openDFSNav() {
+            document.getElementById('dfs-overlay').classList.add('active');
+            document.getElementById('dfs-panel').classList.add('active');
+            const input = document.getElementById('dfs-search');
+            input.value = '';
+            input.focus();
+            dfsFocusedIndex = -1;
+            dfsSearch('');  // Show all nodes
+        }
+
+        function closeDFSNav() {
+            document.getElementById('dfs-overlay').classList.remove('active');
+            document.getElementById('dfs-panel').classList.remove('active');
+            dfsFocusedIndex = -1;
+        }
+
+        async function dfsSearch(query) {
+            try {
+                const url = query.length >= 2
+                    ? `/api/v1/menu/search?q=${encodeURIComponent(query)}&limit=12`
+                    : '/api/v1/menu/nodes';
+                const res = await fetch(url);
+                const data = await res.json();
+
+                let items = [];
+                if (query.length >= 2 && data.results) {
+                    items = data.results.map(r => ({
+                        id: r.id,
+                        label: r.label,
+                        tabId: r.tabId,
+                        icon: r.icon,
+                        desc: r.description,
+                        score: r.score,
+                    }));
+                } else if (data.nodes) {
+                    items = data.nodes.map(n => ({
+                        id: n.id,
+                        label: n.label,
+                        tabId: n.tabId,
+                        icon: n.icon,
+                        desc: n.description,
+                        score: 0,
+                    }));
+                }
+
+                dfsResultsData = items;
+                dfsFocusedIndex = -1;
+                renderDFSResults(items);
+            } catch (err) {
+                console.error('DFS search failed:', err);
+                // Fallback to local results
+                dfsResultsData = [];
+                renderDFSResults([]);
+            }
+        }
+
+        function renderDFSResults(items) {
+            const container = document.getElementById('dfs-results');
+            if (items.length === 0) {
+                container.innerHTML = '<div class="p-8 text-center text-gray-500">No results found</div>';
+                return;
+            }
+
+            container.innerHTML = items.map((item, idx) => `
+                <div class="dfs-result-item" data-idx="${idx}" onclick="dfsNavigate('${item.tabId}', '${item.id}')">
+                    <span class="icon">${item.icon}</span>
+                    <div>
+                        <div class="label">${item.label}</div>
+                        <div class="desc">${item.desc || ''}</div>
+                    </div>
+                    ${item.score > 0 ? `<span class="score">${item.score}</span>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function dfsKeyNav(event) {
+            if (event.key === 'Escape') {
+                closeDFSNav();
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                dfsFocusedIndex = Math.min(dfsFocusedIndex + 1, dfsResultsData.length - 1);
+                highlightDFSItem();
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                dfsFocusedIndex = Math.max(dfsFocusedIndex - 1, 0);
+                highlightDFSItem();
+            } else if (event.key === 'Enter' && dfsFocusedIndex >= 0) {
+                event.preventDefault();
+                const item = dfsResultsData[dfsFocusedIndex];
+                if (item) dfsNavigate(item.tabId, item.id);
+            }
+        }
+
+        function highlightDFSItem() {
+            document.querySelectorAll('.dfs-result-item').forEach((el, idx) => {
+                el.classList.toggle('focused', idx === dfsFocusedIndex);
+                if (idx === dfsFocusedIndex) el.scrollIntoView({ block: 'nearest' });
+            });
+        }
+
+        function dfsNavigate(tabId, nodeId) {
+            closeDFSNav();
+            switchTab(tabId);
+            // Update URL hash for browser history
+            history.pushState({ tab: tabId }, '', `#${tabId}`);
+        }
+
+        // Ctrl+K shortcut
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                openDFSNav();
+            }
+            if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+                e.preventDefault();
+                openDFSNav();
+            }
+        });
+
+        // ── GoT State Visualization ───────────────────────────────────
+        async function loadGoTState() {
+            try {
+                const res = await fetch('/api/v1/agents/got/state');
+                const data = await res.json();
+                const got = data.got || {};
+
+                const container = document.getElementById('got-graph-container');
+                if (!container) return;
+
+                const nodes = got.nodes || [];
+                const activeNodes = nodes.filter(n => n.active);
+
+                if (activeNodes.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm">No GoT thoughts yet. Start the engine to see reasoning.</p>';
+                    return;
+                }
+
+                // Group by type
+                const byType = {};
+                activeNodes.forEach(n => {
+                    const type = n.type || 'observation';
+                    if (!byType[type]) byType[type] = [];
+                    byType[type].push(n);
+                });
+
+                let html = `<div class="flex items-center justify-between mb-3">
+                    <span class="text-sm font-semibold text-purple-400">GoT Reasoning Graph</span>
+                    <span class="cache-stat">
+                        <span>Ticks: ${got.tick_count || 0}</span>
+                        <span>Nodes: ${got.active_nodes || 0}</span>
+                        <span>Consolidations: ${got.consolidation_count || 0}</span>
+                    </span>
+                </div><div class="flex flex-wrap gap-1">`;
+
+                // Render nodes by type
+                for (const [type, typeNodes] of Object.entries(byType)) {
+                    typeNodes.slice(-15).forEach(n => {
+                        const confPct = Math.round(n.confidence * 100);
+                        html += `<span class="got-node ${type}" title="${n.content}">${type[0].toUpperCase()}: ${confPct}%</span>`;
+                    });
+                }
+
+                html += '</div>';
+
+                // Show latest decision details
+                const decisions = got.nodes.filter(n => n.type === 'decision').slice(-3);
+                if (decisions.length > 0) {
+                    const latest = decisions[decisions.length - 1];
+                    html += `<div class="mt-3 p-2 bg-secondary rounded text-xs">
+                        <span class="text-gray-400">Latest:</span> ${latest.content}
+                        <span class="text-purple-400 ml-2">Confidence: ${(latest.confidence * 100).toFixed(0)}%</span>
+                    </div>`;
+                }
+
+                container.innerHTML = html;
+            } catch (err) {
+                console.error('Failed to load GoT state:', err);
+            }
+        }
+
+        // ── Cache Stats ───────────────────────────────────────────────
+        async function loadCacheStats() {
+            try {
+                const res = await fetch('/api/v1/cache/stats');
+                const stats = await res.json();
+
+                const el = document.getElementById('cache-stats');
+                if (!el) return;
+
+                el.innerHTML = `
+                    <span class="cache-stat">
+                        Cache: <span class="hit-rate">${(stats.hit_rate * 100).toFixed(0)}%</span> hit rate
+                        (${stats.hits}H/${stats.misses}M)
+                    </span>
+                    <span class="cache-stat">Entries: ${stats.total_entries}</span>
+                `;
+            } catch (err) {
+                // Cache stats not available yet
+            }
+        }
+
+        // Tab switching (enhanced with DFS)
         function switchTab(tab) {
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -1189,15 +1441,18 @@
             });
 
             // Show selected tab
-            document.getElementById(`tab-${tab}-content`).classList.remove('hidden');
+            const tabContent = document.getElementById(`tab-${tab}-content`);
+            if (tabContent) tabContent.classList.remove('hidden');
             const tabBtn = document.getElementById(`tab-${tab}`);
-            tabBtn.classList.add('tab-active');
-            tabBtn.classList.remove('text-gray-400');
+            if (tabBtn) {
+                tabBtn.classList.add('tab-active');
+                tabBtn.classList.remove('text-gray-400');
+            }
 
             currentTab = tab;
 
             // Load tab-specific data
-            if (tab === 'agents') loadAgents();
+            if (tab === 'agents') { loadAgents(); loadGoTState(); }
             if (tab === 'trading') loadTradingData();
             if (tab === 'connections') loadConnections();
             if (tab === 'pnl') loadPnL('today');
@@ -1206,6 +1461,9 @@
             if (tab === 'intl') loadIntlPairs();
             if (tab === 'commodities') loadCommodityPairs();
             if (tab === 'recommendations') loadRecommendations();
+
+            // Update URL hash
+            history.pushState({ tab }, '', `#${tab}`);
         }
         
         // WebSocket connection
@@ -1470,22 +1728,40 @@
         
         function refreshAll() {
             refreshHealth();
-            if (currentTab === 'agents') loadAgents();
+            if (currentTab === 'agents') { loadAgents(); loadGoTState(); loadCacheStats(); }
             if (currentTab === 'trading') loadTradingData();
         }
-        
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             refreshHealth();
             connectWebSocket();
-            
+            loadCacheStats();
+
             // Request notification permission
             if ('Notification' in window) {
                 Notification.requestPermission();
             }
-            
+
             // Auto-refresh every 10 seconds
             setInterval(refreshHealth, 10000);
+            // Refresh GoT state and cache stats every 15s
+            setInterval(() => {
+                if (currentTab === 'agents') { loadGoTState(); loadCacheStats(); }
+            }, 15000);
+
+            // Handle browser back/forward
+            window.addEventListener('popstate', (e) => {
+                if (e.state && e.state.tab) {
+                    switchTab(e.state.tab);
+                }
+            });
+
+            // Restore tab from URL hash on load
+            const hashTab = window.location.hash.slice(1);
+            if (hashTab) {
+                switchTab(hashTab);
+            }
         });
         
         // Placeholder functions for scanner
