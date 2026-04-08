@@ -18,6 +18,17 @@ from dataclasses import dataclass, asdict
 from .base import AgentOrchestrator, AgentSignal, SignalStrength, AgentRole
 from .trading_agents import create_agent
 
+# V10.1: Centralized fallback data (avoid duplication across methods)
+_FALLBACK_MARKET_DATA = {
+    "pair": "SPY/QQQ",
+    "price_base": 450.0,
+    "price_quote": 400.0,
+    "data_points": 0,
+    "kalman": {"z_score": 0.0, "beta": 1.0, "alpha": 0.0, "spread": 0.0, "innovation_var": 1.0, "converged": False, "is_divergent": True},
+    "egarch": {"annualized_vol": 0.2, "forecast_vol": 0.2, "regime": "NORMAL", "leverage_gamma": None},
+    "mcts": {"expected_value": 0.0, "action": "HOLD", "visit_distribution": {}},
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,6 +68,8 @@ class RealTimeTradingEngine:
         self._decisions: List[TradeDecision] = []
         self._active_trades: Dict[str, TradeDecision] = {}
         self._market_data: Dict[str, Any] = {}
+        self._got_state: Dict[str, Any] = {}  # GoT reasoning state (keyed by pair)
+        self._got_state_lock = asyncio.Lock()  # Protect _got_state dict
     
     def start(self, auto_trade: bool = False):
         """Start the trading engine."""
@@ -98,7 +111,7 @@ class RealTimeTradingEngine:
             self.stop()
     
     async def _tick(self):
-        """Single iteration of trading loop."""
+        """Single iteration of trading loop with GoT reasoning."""
         try:
             # 1. Fetch fresh market data
             await self._fetch_market_data()
@@ -109,7 +122,7 @@ class RealTimeTradingEngine:
             # 3. Run all agents
             agent_signals = await self._run_agents()
 
-            # 4. Get consensus
+            # 4. Get consensus + GoT reasoning for each pair
             for pair in self._market_data.keys():
                 # Include Sentinel signal in consensus if emergency is active
                 signal, confidence, reasoning = self.orchestrator.get_consensus(pair)
@@ -120,8 +133,59 @@ class RealTimeTradingEngine:
                     confidence = max(confidence, 0.8)  # At least 0.8 confidence
                     reasoning += " [EMERGENCY: Sentinel override active]"
 
+                # ── GoT Graph-of-Thought Reasoning ──────────────────────
+                got_result = None
+                try:
+                    from .got_reasoning import get_got_reasoner
+                    from core.semantic_cache import get_semantic_cache
+
+                    reasoner = get_got_reasoner()
+                    cache = get_semantic_cache()
+
+                    # Gather market data for GoT
+                    market = self._market_data[pair]
+                    kalman = market.get("kalman", {})
+                    egarch = market.get("egarch", {})
+                    mcts = market.get("mcts", {})
+
+                    # Build agent signal summaries for GoT
+                    pair_signals = [
+                        {"agent_id": s.agent_id, "signal": s.signal.value, "confidence": s.confidence}
+                        for s in agent_signals if s.pair == pair
+                    ]
+
+                    # GoT tick with semantic cache for expensive reasoning
+                    got_key = f"got:{pair}:{kalman.get('z_score', 0):.2f}:{egarch.get('regime', 'NORMAL')}:{mcts.get('expected_value', 0):.3f}"
+                    got_result = await cache.get_or_compute(
+                        got_key,
+                        lambda p=pair, k=kalman, e=egarch, m=mcts, ps=pair_signals: reasoner.process_tick(
+                            pair=p,
+                            kalman_z=k.get("z_score", 0),
+                            egarch_regime=e.get("regime", "NORMAL"),
+                            egarch_vol=e.get("annualized_vol", 0.2),
+                            mcts_ev=m.get("expected_value", 0),
+                            mcts_action=m.get("action", "HOLD"),
+                            agent_signals=ps,
+                        ),
+                        ttl=300,  # 5 min TTL for GoT results
+                        text_for_embedding=f"GoT reasoning for {pair} with Kalman Z={kalman.get('z_score', 0):.2f} and MCTS EV={mcts.get('expected_value', 0):.3f}",
+                    )
+
+                    # Augment reasoning with GoT decision if actionable
+                    if got_result and got_result.get("actionable"):
+                        got_decision = got_result.get("decision", {})
+                        reasoning += f" | GoT: {got_decision.get('content', '')}"
+                except Exception as e:
+                    logger.debug(f"GoT reasoning error for {pair}: {e}")
+                # ────────────────────────────────────────────────────────
+
                 # 5. Create decision
                 decision = self._create_decision(pair, signal, confidence, reasoning, agent_signals)
+
+                # Enhance decision with GoT data
+                if got_result:
+                    async with self._got_state_lock:
+                        self._got_state[pair] = got_result
 
                 # 6. Execute if auto-trading enabled
                 if self._auto_trade and decision.action == "EXECUTE":
@@ -211,19 +275,11 @@ class RealTimeTradingEngine:
                     logger.debug(f"Failed to fetch {base}/{quote}: {e}")
                     continue
 
-            # Fallback to minimal dataset if all fetches fail
+            # V10.1: Use centralized fallback data instead of duplicated constants
             if not market_data:
                 logger.warning("All market data fetches failed, using minimal fallback")
                 market_data = {
-                    "SPY/QQQ": {
-                        "pair": "SPY/QQQ",
-                        "price_base": 450.0,
-                        "price_quote": 400.0,
-                        "data_points": 0,
-                        "kalman": {"z_score": 0.0, "beta": 1.0, "alpha": 0.0, "spread": 0.0, "innovation_var": 1.0, "converged": False, "is_divergent": True},
-                        "egarch": {"annualized_vol": 0.2, "forecast_vol": 0.2, "regime": "NORMAL", "leverage_gamma": None},
-                        "mcts": {"expected_value": 0.0, "action": "HOLD", "visit_distribution": {}},
-                    }
+                    "SPY/QQQ": dict(_FALLBACK_MARKET_DATA),
                 }
 
             self._market_data = market_data
@@ -231,21 +287,13 @@ class RealTimeTradingEngine:
         except Exception as e:
             logger.error(f"Market data fetch error: {e}")
             self._market_data = {
-                "SPY/QQQ": {
-                    "pair": "SPY/QQQ",
-                    "price_base": 450.0,
-                    "price_quote": 400.0,
-                    "data_points": 0,
-                    "kalman": {"z_score": 0.0, "beta": 1.0, "alpha": 0.0, "spread": 0.0, "innovation_var": 1.0, "converged": False, "is_divergent": True},
-                    "egarch": {"annualized_vol": 0.2, "forecast_vol": 0.2, "regime": "NORMAL", "leverage_gamma": None},
-                    "mcts": {"expected_value": 0.0, "action": "HOLD", "visit_distribution": {}},
-                }
+                "SPY/QQQ": dict(_FALLBACK_MARKET_DATA),
             }
     
     async def _run_agents(self) -> List[AgentSignal]:
         """Run all agents on current market data."""
         signals = []
-        
+
         for agent in self.orchestrator.agents.values():
             try:
                 for pair, data in self._market_data.items():
@@ -255,7 +303,57 @@ class RealTimeTradingEngine:
                     signals.append(signal)
             except Exception as e:
                 logger.error(f"Agent {agent.agent_id} analysis error: {e}")
-        
+
+        # V10.1: Integrate DashScope AI analysis (if available)
+        try:
+            from .ai_agent import get_ai_agent
+            ai_agent = get_ai_agent()
+            
+            if ai_agent.is_available():
+                for pair, data in self._market_data.items():
+                    kalman = data.get("kalman", {})
+                    egarch = data.get("egarch", {})
+                    mcts = data.get("mcts", {})
+                    
+                    # Get current consensus to pass to AI
+                    current_signal, current_confidence, _ = self.orchestrator.get_consensus(pair)
+                    
+                    ai_analysis = await ai_agent.analyze_signal(
+                        pair=pair,
+                        signal=current_signal.value,
+                        confidence=current_confidence,
+                        kalman_z=kalman.get("z_score", 0),
+                        egarch_regime=egarch.get("regime", "NORMAL"),
+                        mcts_ev=mcts.get("expected_value", 0),
+                    )
+                    
+                    # Convert AI analysis to AgentSignal
+                    ai_confidence = 0.7 if ai_analysis.get("assessment") == "STRONG" else (0.5 if ai_analysis.get("assessment") == "MODERATE" else 0.3)
+                    ai_signal_strength = ai_analysis.get("position_size", "HALF")
+                    
+                    if ai_signal_strength == "FULL" and ai_confidence > 0.6:
+                        ai_signal = SignalStrength.BUY
+                    elif ai_signal_strength == "QUARTER" or ai_analysis.get("risk_level") == "HIGH":
+                        ai_signal = SignalStrength.SELL
+                    else:
+                        ai_signal = SignalStrength.HOLD
+                    
+                    ai_agent_signal = AgentSignal(
+                        agent_id="ai-dashscope",
+                        agent_role=AgentRole.ANALYST,
+                        timestamp=datetime.now(timezone.utc),
+                        pair=pair,
+                        signal=ai_signal,
+                        confidence=ai_confidence,
+                        reasoning=f"AI: {ai_analysis.get('reasoning', 'No analysis')}",
+                        metadata=ai_analysis,
+                    )
+                    
+                    self.orchestrator.submit_signal(ai_agent_signal)
+                    signals.append(ai_agent_signal)
+        except Exception as e:
+            logger.debug(f"DashScope AI integration error: {e}")
+
         return signals
     
     def _create_decision(
@@ -382,7 +480,18 @@ class RealTimeTradingEngine:
             "active_trades": len(self._active_trades),
             "websocket_clients": len(self._websocket_clients),
             "agents": self.orchestrator.get_all_states(),
+            "got_state": self._got_state,
         }
+
+    def get_got_state(self) -> Dict[str, Any]:
+        """Get the current Graph-of-Thought reasoning state."""
+        try:
+            from .got_reasoning import get_got_reasoner
+            reasoner = get_got_reasoner()
+            return reasoner.get_dashboard_state()
+        except Exception as e:
+            logger.debug(f"GoT state export error: {e}")
+            return {"error": str(e)}
 
 
 # Global engine instance

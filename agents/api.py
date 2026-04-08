@@ -115,10 +115,21 @@ async def get_agent_state(agent_id: str):
 
 @router.post("/start")
 async def start_engine(auto_trade: bool = False):
-    """Start the trading engine."""
+    """Start the trading engine (idempotent — returns 409 if already running)."""
     engine = get_engine()
+
+    if engine._running:
+        return JSONResponse(
+            status_code=409,
+            content={"status": "already_running", "message": "Engine is already running. Stop it first or use toggle-auto-trade."},
+        )
+
     engine.start(auto_trade=auto_trade)
-    asyncio.create_task(engine.run_loop())
+    # Store task reference to prevent GC and allow cancellation
+    engine._loop_task = asyncio.create_task(engine.run_loop())
+    engine._loop_task.add_done_callback(
+        lambda t: logger.warning(f"Engine loop task exited with: {t.exception()}") if t.exception() else None
+    )
 
     return {
         "status": "started",
@@ -254,5 +265,27 @@ async def get_agent_metrics():
 
     return {
         "metrics": metrics,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/got/state")
+async def get_got_state_api():
+    """Get Graph-of-Thought reasoning state for dashboard visualization."""
+    engine = get_engine()
+    got_state = engine.get_got_state()
+    return {
+        "got": got_state,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/got/decision")
+async def get_got_latest_decision():
+    """Get the latest GoT decision from the engine."""
+    engine = get_engine()
+    got_state = engine._got_state
+    return {
+        "got_state": got_state,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

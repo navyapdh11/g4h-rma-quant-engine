@@ -5,7 +5,7 @@ Autonomous agents collaborating for optimal trading decisions.
 
 Quick Start:
     from agents import get_trading_engine
-    
+
     engine = get_trading_engine()
     engine.start(auto_trade=True)
 """
@@ -29,6 +29,13 @@ from .engine import (
     RealTimeTradingEngine,
     get_trading_engine,
 )
+from .got_reasoning import (
+    GoTReasoner,
+    GoTGraph,
+    ThoughtNode,
+    ThoughtType,
+    get_got_reasoner,
+)
 
 __all__ = [
     # Base
@@ -48,4 +55,10 @@ __all__ = [
     # Engine
     "RealTimeTradingEngine",
     "get_trading_engine",
+    # GoT Reasoning
+    "GoTReasoner",
+    "GoTGraph",
+    "ThoughtNode",
+    "ThoughtType",
+    "get_got_reasoner",
 ]
