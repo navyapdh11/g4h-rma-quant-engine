@@ -29,28 +29,166 @@
         .pulse-dot { animation: pulse-dot 2s infinite; }
         @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
         .slide-in { animation: slideIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
         .card-gradient { background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%); }
         .agent-card { background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%); }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #0f0f1a; }
         ::-webkit-scrollbar-thumb { background: #16213e; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #0f3460; }
-        .tab-active { border-bottom: 2px solid #8b5cf6; color: #8b5cf6; }
-        .signal-strong-buy { background: linear-gradient(135deg, #059669, #10b981); }
-        .signal-buy { background: linear-gradient(135deg, #047857, #059669); }
-        .signal-hold { background: linear-gradient(135deg, #4b5563, #6b7280); }
-        .signal-sell { background: linear-gradient(135deg, #dc2626, #ef4444); }
-        .signal-strong-sell { background: linear-gradient(135deg, #991b1b, #dc2626); }
-        .signal-options-long { background: linear-gradient(135deg, #7c3aed, #a855f7); }
-        .signal-options-short { background: linear-gradient(135deg, #ea580c, #f97316); }
-        /* Sentiment gauge styles */
-        .sentiment-gauge { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: linear-gradient(to right, #ef4444 0%, #f59e0b 50%, #10b981 100%); position: relative; }
-        .sentiment-marker { position: absolute; top: -2px; width: 4px; height: 12px; background: white; border-radius: 2px; border: 1px solid #333; }
-        .sentiment-bullish { color: #10b981; }
-        .sentiment-bearish { color: #ef4444; }
-        .sentiment-neutral { color: #9ca3af; }
-        .options-badge { background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; font-size: 0.6rem; padding: 1px 4px; border-radius: 3px; margin-left: 4px; }
-        /* DFS Navigator overlay */
+
+        /* ── Sidebar Navigation ────────────────────────────────── */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 260px;
+            background: linear-gradient(180deg, #12121f 0%, #0d0d18 100%);
+            border-right: 1px solid rgba(22,33,62,0.8);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s cubic-bezier(0.16,1,0.3,1);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .sidebar.collapsed { transform: translateX(-260px); }
+        .sidebar-header {
+            padding: 20px 16px 16px;
+            border-bottom: 1px solid rgba(22,33,62,0.6);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+        }
+        .sidebar-logo {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .sidebar-brand h1 { font-size: 14px; font-weight: 700; line-height: 1.2; }
+        .sidebar-brand p { font-size: 10px; color: #666; margin-top: 2px; }
+        .sidebar-nav { padding: 12px 8px; flex: 1; }
+        .sidebar-section { margin-bottom: 16px; }
+        .sidebar-section-label {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: #555;
+            padding: 0 12px;
+            margin-bottom: 6px;
+        }
+        .sidebar-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px 12px;
+            border: none;
+            background: transparent;
+            color: #999;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-align: left;
+            white-space: nowrap;
+        }
+        .sidebar-item:hover {
+            background: rgba(139,92,246,0.1);
+            color: #ccc;
+        }
+        .sidebar-item.active {
+            background: rgba(139,92,246,0.18);
+            color: #a78bfa;
+            font-weight: 600;
+        }
+        .sidebar-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            width: 3px;
+            height: 24px;
+            background: #8b5cf6;
+            border-radius: 0 3px 3px 0;
+        }
+        .sidebar-item .si-icon {
+            width: 20px;
+            text-align: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .sidebar-item .si-label { flex: 1; }
+        .sidebar-item .si-badge {
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            background: rgba(139,92,246,0.2);
+            color: #a78bfa;
+            display: none;
+        }
+        .sidebar-divider {
+            height: 1px;
+            background: rgba(22,33,62,0.5);
+            margin: 8px 12px;
+        }
+        .sidebar-footer {
+            padding: 12px 16px;
+            border-top: 1px solid rgba(22,33,62,0.6);
+            flex-shrink: 0;
+        }
+        .sidebar-toggle {
+            position: fixed;
+            top: 16px;
+            left: 268px;
+            z-index: 1001;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            background: #1a1a2e;
+            border: 1px solid #16213e;
+            color: #888;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
+            font-size: 14px;
+        }
+        .sidebar-toggle:hover { background: #16213e; color: #a78bfa; }
+        .sidebar.collapsed ~ .sidebar-toggle { left: 8px; }
+        .sidebar.collapsed ~ .sidebar-toggle svg { transform: rotate(180deg); }
+
+        /* ── Main Content Area ─────────────────────────────────── */
+        .main-wrapper {
+            margin-left: 260px;
+            min-height: 100vh;
+            transition: margin-left 0.3s cubic-bezier(0.16,1,0.3,1);
+        }
+        .main-wrapper.expanded { margin-left: 0; }
+
+        /* ── Top Bar ───────────────────────────────────────────── */
+        .top-bar {
+            position: sticky;
+            top: 0;
+            z-index: 500;
+            background: rgba(26,26,46,0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid rgba(22,33,62,0.6);
+            padding: 12px 24px;
+        }
+
+        /* ── DFS Navigator overlay ─────────────────────────────── */
         .dfs-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9998; display: none; }
         .dfs-overlay.active { display: block; }
         .dfs-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(600px, 90vw); max-height: 80vh; background: linear-gradient(135deg, #16213e, #0f0f1a); border: 1px solid #16213e; border-radius: 16px; z-index: 9999; display: none; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.5); }
@@ -65,97 +203,179 @@
         .dfs-result-item .label { font-weight: 600; }
         .dfs-result-item .desc { font-size: 12px; color: #888; }
         .dfs-result-item .score { margin-left: auto; font-size: 11px; color: #8b5cf6; background: rgba(139,92,246,0.2); padding: 2px 8px; border-radius: 8px; }
-        /* GoT visualization */
+
+        /* ── GoT visualization ─────────────────────────────────── */
         .got-graph { background: rgba(15,15,26,0.8); border-radius: 12px; border: 1px solid #16213e; padding: 16px; }
         .got-node { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 11px; margin: 3px; white-space: nowrap; }
         .got-node.observation { background: rgba(59,130,246,0.2); border: 1px solid rgba(59,130,246,0.4); }
         .got-node.hypothesis { background: rgba(245,158,11,0.2); border: 1px solid rgba(245,158,11,0.4); }
         .got-node.decision { background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); }
         .got-node.summary { background: rgba(139,92,246,0.2); border: 1px solid rgba(139,92,246,0.4); }
-        /* Cache stats */
+
+        /* ── Cache stats ───────────────────────────────────────── */
         .cache-stat { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: #888; }
         .cache-stat .hit-rate { color: #10b981; }
+
+        /* ── Signal badges ─────────────────────────────────────── */
+        .signal-strong-buy { background: linear-gradient(135deg, #059669, #10b981); }
+        .signal-buy { background: linear-gradient(135deg, #047857, #059669); }
+        .signal-hold { background: linear-gradient(135deg, #4b5563, #6b7280); }
+        .signal-sell { background: linear-gradient(135deg, #dc2626, #ef4444); }
+        .signal-strong-sell { background: linear-gradient(135deg, #991b1b, #dc2626); }
+        .signal-options-long { background: linear-gradient(135deg, #7c3aed, #a855f7); }
+        .signal-options-short { background: linear-gradient(135deg, #ea580c, #f97316); }
+
+        /* ── Sentiment gauge ───────────────────────────────────── */
+        .sentiment-gauge { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: linear-gradient(to right, #ef4444 0%, #f59e0b 50%, #10b981 100%); position: relative; }
+        .sentiment-marker { position: absolute; top: -2px; width: 4px; height: 12px; background: white; border-radius: 2px; border: 1px solid #333; }
+        .sentiment-bullish { color: #10b981; }
+        .sentiment-bearish { color: #ef4444; }
+        .sentiment-neutral { color: #9ca3af; }
+        .options-badge { background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; font-size: 0.6rem; padding: 1px 4px; border-radius: 3px; margin-left: 4px; }
+
+        /* ── Responsive ────────────────────────────────────────── */
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-260px); }
+            .sidebar.mobile-open { transform: translateX(0); }
+            .main-wrapper { margin-left: 0 !important; }
+            .sidebar-toggle { left: 8px !important; }
+        }
     </style>
 </head>
 <body class="bg-primary text-gray-100 min-h-screen">
-    <!-- Header -->
-    <header class="bg-secondary border-b border-accent sticky top-0 z-50">
-        <div class="container mx-auto px-4 py-4">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                </svg>
+            </div>
+            <div class="sidebar-brand">
+                <h1>G4H-RMA Quant</h1>
+                <p id="sidebar-version">V10.1</p>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <!-- Primary -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-label">Overview</div>
+                <button onclick="switchTab('dashboard')" class="sidebar-item active" id="tab-dashboard" style="position:relative">
+                    <span class="si-icon">📊</span>
+                    <span class="si-label">Dashboard</span>
+                </button>
+                <button onclick="switchTab('agents')" class="sidebar-item" id="tab-agents" style="position:relative">
+                    <span class="si-icon">🤖</span>
+                    <span class="si-label">Agents</span>
+                </button>
+                <button onclick="switchTab('trading')" class="sidebar-item" id="tab-trading" style="position:relative">
+                    <span class="si-icon">⚡</span>
+                    <span class="si-label">Auto-Trading</span>
+                </button>
+                <button onclick="switchTab('scanner')" class="sidebar-item" id="tab-scanner" style="position:relative">
+                    <span class="si-icon">🔍</span>
+                    <span class="si-label">Scanner</span>
+                </button>
+            </div>
+
+            <!-- Markets -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-label">Markets</div>
+                <button onclick="switchTab('equities')" class="sidebar-item" id="tab-equities" style="position:relative">
+                    <span class="si-icon">🏛️</span>
+                    <span class="si-label">Equity Trading</span>
+                </button>
+                <button onclick="switchTab('intl')" class="sidebar-item" id="tab-intl" style="position:relative">
+                    <span class="si-icon">🌍</span>
+                    <span class="si-label">International ADR</span>
+                </button>
+                <button onclick="switchTab('commodities')" class="sidebar-item" id="tab-commodities" style="position:relative">
+                    <span class="si-icon">🧪</span>
+                    <span class="si-label">Commodities Futures</span>
+                </button>
+            </div>
+
+            <div class="sidebar-divider"></div>
+
+            <!-- Analytics -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-label">Analytics</div>
+                <button onclick="switchTab('connections')" class="sidebar-item" id="tab-connections" style="position:relative">
+                    <span class="si-icon">🔗</span>
+                    <span class="si-label">Connections</span>
+                </button>
+                <button onclick="switchTab('pnl')" class="sidebar-item" id="tab-pnl" style="position:relative">
+                    <span class="si-icon">💰</span>
+                    <span class="si-label">P&L</span>
+                </button>
+                <button onclick="switchTab('recommendations')" class="sidebar-item" id="tab-recommendations" style="position:relative">
+                    <span class="si-icon">🎯</span>
+                    <span class="si-label">Recommendations</span>
+                </button>
+            </div>
+
+            <div class="sidebar-divider"></div>
+
+            <!-- Help -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-label">Help</div>
+                <button onclick="switchTab('guide')" class="sidebar-item" id="tab-guide" style="position:relative">
+                    <span class="si-icon">📚</span>
+                    <span class="si-label">Guide & FAQ</span>
+                </button>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="flex items-center gap-2 text-xs text-gray-500">
+                <span class="w-2 h-2 bg-success rounded-full pulse-dot" id="sidebar-status-dot"></span>
+                <span id="sidebar-status-text">Connecting...</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Sidebar Toggle -->
+    <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+        <svg class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+        </svg>
+    </button>
+
+    <!-- Main Content Wrapper -->
+    <div class="main-wrapper" id="main-wrapper">
+        <!-- Top Bar -->
+        <header class="top-bar">
             <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
-                    <div class="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg flex items-center justify-center">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                        </svg>
-                    </div>
-                    <div>
-                        <h1 class="text-xl font-bold">G4H-RMA Quant Engine <span class="text-purple-400" id="engine-version">V10.0</span></h1>
-                        <p class="text-xs text-gray-400">Multi-Agent Trading System</p>
-                    </div>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center space-x-2">
-                        <span class="w-2 h-2 bg-success rounded-full pulse-dot" id="status-dot"></span>
-                        <span class="text-sm" id="status-text">Connecting...</span>
-                    </div>
-                    <button onclick="refreshAll()" class="p-2 hover:bg-accent rounded-lg transition" title="Refresh">
+                <div class="flex items-center gap-3">
+                    <button class="md:hidden p-1 hover:bg-accent rounded" onclick="toggleMobileSidebar()">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                    </button>
+                    <h2 class="text-sm font-semibold text-gray-300" id="page-title">Dashboard</h2>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-1.5 text-xs">
+                        <span class="w-2 h-2 bg-success rounded-full pulse-dot" id="status-dot"></span>
+                        <span class="text-gray-400" id="status-text">Connecting...</span>
+                    </div>
+                    <button onclick="refreshAll()" class="p-1.5 hover:bg-accent rounded-lg transition" title="Refresh">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                         </svg>
                     </button>
-                    <button onclick="openDFSNav()" class="p-2 hover:bg-accent rounded-lg transition" title="Navigator (Ctrl+K)">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button onclick="openDFSNav()" class="p-1.5 hover:bg-accent rounded-lg transition" title="Search (Ctrl+K)">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                         </svg>
                     </button>
                 </div>
             </div>
-        </div>
-    </header>
+        </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="bg-secondary border-b border-accent">
-        <div class="container mx-auto px-4">
-            <div class="flex space-x-6">
-                <button onclick="switchTab('dashboard')" id="tab-dashboard" class="tab-active py-3 px-2 text-sm font-medium transition">
-                    📊 Dashboard
-                </button>
-                <button onclick="switchTab('agents')" id="tab-agents" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    🤖 Agents
-                </button>
-                <button onclick="switchTab('trading')" id="tab-trading" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    ⚡ Auto-Trading
-                </button>
-                <button onclick="switchTab('scanner')" id="tab-scanner" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    🔍 Scanner
-                </button>
-                <button onclick="switchTab('connections')" id="tab-connections" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    🔗 Connections
-                </button>
-                <button onclick="switchTab('pnl')" id="tab-pnl" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    💰 P&L
-                </button>
-                <button onclick="switchTab('guide')" id="tab-guide" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    📚 Guide
-                </button>
-                <button onclick="switchTab('equities')" id="tab-equities" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    🏛️ Equity Trading
-                </button>
-                <button onclick="switchTab('intl')" id="tab-intl" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    🌍 International ADR
-                </button>
-                <button onclick="switchTab('commodities')" id="tab-commodities" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    🧪 Commodities Futures
-                </button>
-                <button onclick="switchTab('recommendations')" id="tab-recommendations" class="py-3 px-2 text-sm font-medium text-gray-400 hover:text-gray-200 transition">
-                    🎯 Recommendations
-                </button>
-            </div>
-        </div>
-    </nav>
-
-    <!-- Main Content -->
-    <main class="container mx-auto px-4 py-6">
+        <!-- Main Content -->
+        <main class="px-6 py-6">
         <!-- Dashboard Tab -->
         <div id="tab-dashboard-content" class="tab-content">
             <!-- System Health -->
@@ -1202,7 +1422,16 @@
                 </div>
             </div>
         </div>
-    </main>
+        </main>
+
+        <!-- Footer -->
+        <footer class="border-t border-accent mt-auto py-4 px-6">
+            <div class="flex items-center justify-between text-xs text-gray-500">
+                <span>G4H-RMA Quant Engine V10.1 — Kalman + EGARCH + MCTS + GoT + AI Agents</span>
+                <span id="cache-stats"></span>
+            </div>
+        </footer>
+    </div><!-- /.main-wrapper -->
 
     <!-- DFS Navigator Overlay -->
     <div id="dfs-overlay" class="dfs-overlay" onclick="closeDFSNav()"></div>
@@ -1210,13 +1439,6 @@
         <input type="text" id="dfs-search" placeholder="Search dashboard pages... (Ctrl+K)" oninput="dfsSearch(this.value)" onkeydown="dfsKeyNav(event)">
         <div id="dfs-results" class="dfs-results"></div>
     </div>
-
-    <!-- Footer -->
-    <footer class="border-t border-accent mt-8 py-4">
-        <div class="container mx-auto px-4 text-center text-sm text-gray-500">
-            G4H-RMA Quant Engine V8.0 — Multi-Agent Trading System | Kalman + EGARCH + MCTS + AI Agents + SQLite
-        </div>
-    </footer>
 
     <script>
         // Global state
@@ -1431,23 +1653,55 @@
             }
         }
 
-        // Tab switching (enhanced with DFS)
+        // ── Sidebar Toggle ──────────────────────────────────────────
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const wrapper = document.getElementById('main-wrapper');
+            sidebar.classList.toggle('collapsed');
+            wrapper.classList.toggle('expanded');
+            localStorage.setItem('sidebar-collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
+        }
+
+        function toggleMobileSidebar() {
+            document.getElementById('sidebar').classList.toggle('mobile-open');
+        }
+
+        // Tab switching (sidebar-driven)
+        const pageTitles = {
+            dashboard: 'Dashboard',
+            agents: 'Agents',
+            trading: 'Auto-Trading',
+            scanner: 'Scanner',
+            connections: 'Connections',
+            pnl: 'P&L',
+            guide: 'Guide & FAQ',
+            equities: 'Equity Trading',
+            intl: 'International ADR',
+            commodities: 'Commodities Futures',
+            recommendations: 'Recommendations',
+        };
+
         function switchTab(tab) {
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-            document.querySelectorAll('nav button').forEach(el => {
-                el.classList.remove('tab-active');
-                el.classList.add('text-gray-400');
+
+            // Update sidebar items
+            document.querySelectorAll('.sidebar-item').forEach(el => {
+                el.classList.remove('active');
             });
+            const tabBtn = document.getElementById(`tab-${tab}`);
+            if (tabBtn) tabBtn.classList.add('active');
 
             // Show selected tab
             const tabContent = document.getElementById(`tab-${tab}-content`);
-            if (tabContent) tabContent.classList.remove('hidden');
-            const tabBtn = document.getElementById(`tab-${tab}`);
-            if (tabBtn) {
-                tabBtn.classList.add('tab-active');
-                tabBtn.classList.remove('text-gray-400');
+            if (tabContent) {
+                tabContent.classList.remove('hidden');
+                tabContent.classList.add('fade-in');
+                setTimeout(() => tabContent.classList.remove('fade-in'), 400);
             }
+
+            // Update page title
+            document.getElementById('page-title').textContent = pageTitles[tab] || tab;
 
             currentTab = tab;
 
@@ -1464,6 +1718,9 @@
 
             // Update URL hash
             history.pushState({ tab }, '', `#${tab}`);
+
+            // Close mobile sidebar if open
+            document.getElementById('sidebar').classList.remove('mobile-open');
         }
         
         // WebSocket connection
@@ -1509,13 +1766,19 @@
         function updateStatus(status) {
             const dot = document.getElementById('status-dot');
             const text = document.getElementById('status-text');
-            
+            const sDot = document.getElementById('sidebar-status-dot');
+            const sText = document.getElementById('sidebar-status-text');
+
             if (status === 'online') {
                 dot.className = 'w-2 h-2 bg-success rounded-full pulse-dot';
                 text.textContent = 'Connected';
+                if (sDot) sDot.className = 'w-2 h-2 bg-success rounded-full pulse-dot';
+                if (sText) sText.textContent = 'Connected';
             } else {
                 dot.className = 'w-2 h-2 bg-danger rounded-full';
                 text.textContent = 'Disconnected';
+                if (sDot) sDot.className = 'w-2 h-2 bg-danger rounded-full';
+                if (sText) sText.textContent = 'Disconnected';
             }
         }
         
@@ -1734,6 +1997,12 @@
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            // Restore sidebar state
+            if (localStorage.getItem('sidebar-collapsed') === '1') {
+                document.getElementById('sidebar').classList.add('collapsed');
+                document.getElementById('main-wrapper').classList.add('expanded');
+            }
+
             refreshHealth();
             connectWebSocket();
             loadCacheStats();
@@ -1748,6 +2017,7 @@
             // Refresh GoT state and cache stats every 15s
             setInterval(() => {
                 if (currentTab === 'agents') { loadGoTState(); loadCacheStats(); }
+                else { loadCacheStats(); }
             }, 15000);
 
             // Handle browser back/forward
@@ -1762,6 +2032,11 @@
             if (hashTab) {
                 switchTab(hashTab);
             }
+
+            // Close mobile sidebar on content click
+            document.getElementById('main-wrapper').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.remove('mobile-open');
+            });
         });
         
         // Placeholder functions for scanner
